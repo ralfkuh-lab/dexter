@@ -413,7 +413,7 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
       }`}
     >
       <div
-        className={`absolute top-[3px] left-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+        className={`absolute top-[3px] left-[3px] w-[18px] h-[18px] rounded-full bg-white transition-transform duration-200 ${
           on ? "translate-x-5" : ""
         }`}
       />
@@ -501,6 +501,7 @@ function Orb() {
   const isPlayingRef = useRef(false);
   const totalChunksRef = useRef<number | null>(null);
   const playedCountRef = useRef(0);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     bubblesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -508,6 +509,24 @@ function Orb() {
 
   const addBubble = (role: ChatBubble["role"], text: string) => {
     setBubbles((prev) => [...prev, { role, text, id: bubbleId++ }]);
+  };
+
+  const stopAllAudio = () => {
+    // Stop currently playing audio
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.onended = null;
+      currentAudioRef.current.onerror = null;
+      currentAudioRef.current = null;
+    }
+    // Revoke all queued audio URLs
+    for (const item of audioQueueRef.current) {
+      URL.revokeObjectURL(item.url);
+    }
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    totalChunksRef.current = null;
+    playedCountRef.current = 0;
   };
 
   const playNext = () => {
@@ -524,21 +543,26 @@ function Orb() {
     const next = audioQueueRef.current.shift()!;
     isPlayingRef.current = true;
     const audio = new Audio(next.url);
+    currentAudioRef.current = audio;
     audio.play().catch(() => {});
-    audio.onended = () => { URL.revokeObjectURL(next.url); isPlayingRef.current = false; playedCountRef.current++; playNext(); };
-    audio.onerror = () => { URL.revokeObjectURL(next.url); isPlayingRef.current = false; playedCountRef.current++; playNext(); };
+    audio.onended = () => { URL.revokeObjectURL(next.url); currentAudioRef.current = null; isPlayingRef.current = false; playedCountRef.current++; playNext(); };
+    audio.onerror = () => { URL.revokeObjectURL(next.url); currentAudioRef.current = null; isPlayingRef.current = false; playedCountRef.current++; playNext(); };
   };
 
   useEffect(() => {
+    const unInterrupted = listen("pipeline_interrupted", () => {
+      stopAllAudio();
+    });
     const unPressed = listen("hotkey_pressed", () => {
-      audioQueueRef.current = [];
-      isPlayingRef.current = false;
-      totalChunksRef.current = null;
-      playedCountRef.current = 0;
+      stopAllAudio();
       setStage("listening");
     });
     const unReleased = listen("hotkey_released", () => { setStage("transcribing"); });
-    return () => { unPressed.then((fn) => fn()); unReleased.then((fn) => fn()); };
+    return () => {
+      unInterrupted.then((fn) => fn());
+      unPressed.then((fn) => fn());
+      unReleased.then((fn) => fn());
+    };
   }, []);
 
   useEffect(() => {
@@ -629,7 +653,7 @@ function Orb() {
     "";
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen orb-bg px-5 py-4">
       {/* Conversation bubbles */}
       <div className="flex-1 overflow-y-auto flex flex-col justify-end px-3.5 pt-4 pb-2.5 gap-2 no-scrollbar bubble-mask">
         {bubbles.map((b) => (

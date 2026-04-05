@@ -4,8 +4,7 @@
 /* Idle — blue/indigo */
 .orb-core {
   background: radial-gradient(circle at 35% 30%, #a5d8ff, #3b82f6, #6366f1);
-  box-shadow: 0 0 24px rgba(59, 130, 246, 0.3);
-  transition: background 0.5s ease, box-shadow 0.5s ease;
+  transition: background 0.5s ease;
 }
 .orb-glow {
   background: radial-gradient(circle, rgba(99, 102, 241, 0.25), transparent 70%);
@@ -19,7 +18,6 @@
 /* Listening — red/crimson */
 .orb-listening .orb-core {
   background: radial-gradient(circle at 35% 30%, #fca5a5, #ef4444, #dc2626);
-  box-shadow: 0 0 28px rgba(239, 68, 68, 0.45);
 }
 .orb-listening .orb-glow {
   background: radial-gradient(circle, rgba(239, 68, 68, 0.4), transparent 70%);
@@ -31,7 +29,6 @@
 /* Processing — amber */
 .orb-processing .orb-core {
   background: radial-gradient(circle at 35% 30%, #fde68a, #f59e0b, #d97706);
-  box-shadow: 0 0 22px rgba(245, 158, 11, 0.4);
 }
 .orb-processing .orb-glow {
   background: radial-gradient(circle, rgba(245, 158, 11, 0.35), transparent 70%);
@@ -43,7 +40,6 @@
 /* Thinking — purple */
 .orb-thinking .orb-core {
   background: radial-gradient(circle at 35% 30%, #c4b5fd, #8b5cf6, #6d28d9);
-  box-shadow: 0 0 24px rgba(139, 92, 246, 0.4);
 }
 .orb-thinking .orb-glow {
   background: radial-gradient(circle, rgba(139, 92, 246, 0.35), transparent 70%);
@@ -55,7 +51,6 @@
 /* Tool call — warm amber/orange */
 .orb-toolcall .orb-core {
   background: radial-gradient(circle at 35% 30%, #fed7aa, #f59e0b, #ea580c);
-  box-shadow: 0 0 24px rgba(245, 158, 11, 0.45);
 }
 .orb-toolcall .orb-glow {
   background: radial-gradient(circle, rgba(245, 158, 11, 0.4), transparent 70%);
@@ -67,7 +62,6 @@
 /* Speaking — cyan/teal */
 .orb-speaking .orb-core {
   background: radial-gradient(circle at 35% 30%, #67e8f9, #06b6d4, #0891b2);
-  box-shadow: 0 0 24px rgba(6, 182, 212, 0.4);
 }
 .orb-speaking .orb-glow {
   background: radial-gradient(circle, rgba(6, 182, 212, 0.4), transparent 70%);
@@ -79,7 +73,6 @@
 /* Error — dim red */
 .orb-error .orb-core {
   background: radial-gradient(circle at 35% 30%, #7f1d1d, #991b1b, #450a0a);
-  box-shadow: 0 0 14px rgba(127, 29, 29, 0.3);
 }
 .orb-error .orb-glow {
   background: radial-gradient(circle, rgba(127, 29, 29, 0.25), transparent 70%);
@@ -88,6 +81,19 @@
 }
 .orb-error .orb-ring {
   border-color: rgba(127, 29, 29, 0.2);
+}
+
+/* Main orb window background — full tint, only the border pixels fade to transparent */
+.orb-bg {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-mask-image:
+    linear-gradient(to right,  transparent 0%, black 18%, black 82%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+  -webkit-mask-composite: destination-in;
+  mask-image:
+    linear-gradient(to right,  transparent 0%, black 18%, black 82%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+  mask-composite: intersect;
 }
 
 /* Settings background */

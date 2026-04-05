@@ -364,8 +364,11 @@ pub fn build_tools(tools_config: &crate::ToolsConfig) -> Vec<serde_json::Value> 
 pub enum StreamResult {
     /// Model streamed a text response. Full text returned here.
     Content(String),
-    /// Model requested tool calls instead of producing content.
-    ToolCalls(Vec<OllamaToolCall>),
+    /// Model requested tool calls. May include pre-tool-call narration text
+    /// (e.g. "Let me search for that") that was already sent to TTS.
+    /// Fields: (tool_calls, spoken_preamble, xml_parsed)
+    /// xml_parsed=true means the model emitted XML text, not native Ollama tool_calls.
+    ToolCalls(Vec<OllamaToolCall>, String, bool),
 }
 
 /// Unified streaming chat. Streams with tools enabled.
@@ -419,9 +422,18 @@ pub async fn chat_streaming(
 
     let mut full_response = String::new();
     let mut sentence_buffer = String::new();
+    let mut spoken_text = String::new(); // Text that was sent to TTS before a tool call
     let mut byte_stream = resp.bytes_stream();
     let mut line_buffer = Vec::new();
     let mut collected_tool_calls: Vec<OllamaToolCall> = Vec::new();
+    // XML tool call collection state — only active when tools are provided
+    let has_tools = !tools.is_empty();
+    let mut xml_collecting = false;
+    let mut xml_buffer = String::new();
+
+    // Regex to detect XML tool call open tags like <tool_call> or <minimax:tool_call>
+    let xml_open_re = regex::Regex::new(r"<(?:\w+:)?tool_call>").unwrap();
+    let xml_close_re = regex::Regex::new(r"</(?:\w+:)?tool_call>").unwrap();
 
     while let Some(chunk) = byte_stream.next().await {
         let chunk = chunk?;
@@ -438,7 +450,7 @@ pub async fn chat_streaming(
 
             if let Ok(stream_chunk) = serde_json::from_str::<OllamaStreamChunk>(line_str) {
                 if let Some(msg) = &stream_chunk.message {
-                    // Collect tool calls if present
+                    // Collect native tool calls if present
                     if let Some(tc) = &msg.tool_calls {
                         collected_tool_calls.extend(tc.clone());
                     }
@@ -446,24 +458,74 @@ pub async fn chat_streaming(
                     // Collect content tokens
                     if !msg.content.is_empty() {
                         full_response.push_str(&msg.content);
-                        sentence_buffer.push_str(&msg.content);
 
-                        // Send complete sentences as they form
-                        while let Some(split_pos) = find_sentence_end(&sentence_buffer) {
-                            let sentence: String = sentence_buffer.drain(..=split_pos).collect();
-                            let sentence = sentence.trim().to_string();
-                            if !sentence.is_empty() {
-                                let _ = sentence_tx.send(sentence).await;
+                        if xml_collecting {
+                            // We're inside an XML tool call block — collect into xml_buffer
+                            xml_buffer.push_str(&msg.content);
+
+                            // Check if the closing tag has arrived
+                            if xml_close_re.is_match(&xml_buffer) {
+                                // Parse the complete XML tool call block
+                                let full_xml = format!("<tool_call>{}</tool_call>", xml_buffer);
+                                if let Some(parsed) = parse_xml_tool_calls(&full_xml) {
+                                    collected_tool_calls.extend(parsed);
+                                }
+                                xml_buffer.clear();
+                                xml_collecting = false;
+                            }
+                        } else {
+                            sentence_buffer.push_str(&msg.content);
+
+                            // Check if an XML tool call tag appeared in the sentence buffer
+                            // Only detect XML tool calls when tools are provided
+                            if has_tools && xml_open_re.find(&sentence_buffer).is_some() {
+                                let m = xml_open_re.find(&sentence_buffer).unwrap();
+                                // Flush everything before the tag to TTS
+                                let before = sentence_buffer[..m.start()].trim().to_string();
+                                if !before.is_empty() {
+                                    spoken_text.push_str(&before);
+                                    spoken_text.push(' ');
+                                    let _ = sentence_tx.send(before).await;
+                                }
+                                // Everything after the open tag goes into xml_buffer
+                                let after_tag = &sentence_buffer[m.end()..];
+                                xml_buffer = after_tag.to_string();
+                                sentence_buffer.clear();
+                                xml_collecting = true;
+
+                                // Check if closing tag is already in the buffer
+                                if xml_close_re.is_match(&xml_buffer) {
+                                    let full_xml = format!("<tool_call>{}</tool_call>", xml_buffer);
+                                    if let Some(parsed) = parse_xml_tool_calls(&full_xml) {
+                                        collected_tool_calls.extend(parsed);
+                                    }
+                                    xml_buffer.clear();
+                                    xml_collecting = false;
+                                }
+                            } else {
+                                // Normal streaming — send complete sentences as they form
+                                while let Some(split_pos) = find_sentence_end(&sentence_buffer) {
+                                    let sentence: String = sentence_buffer.drain(..=split_pos).collect();
+                                    let sentence = sentence.trim().to_string();
+                                    if !sentence.is_empty() {
+                                        spoken_text.push_str(&sentence);
+                                        spoken_text.push(' ');
+                                        let _ = sentence_tx.send(sentence).await;
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
                 if stream_chunk.done.unwrap_or(false) {
-                    // Flush remaining sentence buffer
-                    let remaining = sentence_buffer.trim().to_string();
-                    if !remaining.is_empty() {
-                        let _ = sentence_tx.send(remaining).await;
+                    // Flush remaining sentence buffer (only if not collecting XML)
+                    if !xml_collecting {
+                        let remaining = sentence_buffer.trim().to_string();
+                        if !remaining.is_empty() {
+                            spoken_text.push_str(&remaining);
+                            let _ = sentence_tx.send(remaining).await;
+                        }
                     }
                     break;
                 }
@@ -481,26 +543,41 @@ pub async fn chat_streaming(
                 }
                 if !msg.content.is_empty() {
                     full_response.push_str(&msg.content);
-                    sentence_buffer.push_str(&msg.content);
+                    if xml_collecting {
+                        xml_buffer.push_str(&msg.content);
+                    } else {
+                        sentence_buffer.push_str(&msg.content);
+                    }
                 }
             }
         }
-        let remaining = sentence_buffer.trim().to_string();
-        if !remaining.is_empty() {
-            let _ = sentence_tx.send(remaining).await;
+        // Try to parse any remaining XML
+        if xml_collecting && xml_close_re.is_match(&xml_buffer) {
+            let full_xml = format!("<tool_call>{}</tool_call>", xml_buffer);
+            if let Some(parsed) = parse_xml_tool_calls(&full_xml) {
+                collected_tool_calls.extend(parsed);
+            }
+        }
+        if !xml_collecting {
+            let remaining = sentence_buffer.trim().to_string();
+            if !remaining.is_empty() {
+                spoken_text.push_str(&remaining);
+                let _ = sentence_tx.send(remaining).await;
+            }
         }
     }
 
-    // If we got tool calls, return those (even if there was some content)
+    // If we got tool calls (native or XML-parsed), return them with any spoken preamble
     if !collected_tool_calls.is_empty() {
-        return Ok(StreamResult::ToolCalls(collected_tool_calls));
+        return Ok(StreamResult::ToolCalls(collected_tool_calls, spoken_text.trim().to_string(), false));
     }
 
-    // Fallback: check if the content contains XML-style tool calls
-    if !full_response.is_empty() {
+    // Last-resort fallback: check full response for XML tool calls we might have missed
+    // Only when tools are provided — otherwise model's XML output is just text
+    if has_tools && !full_response.is_empty() {
         if let Some(parsed) = parse_xml_tool_calls(&full_response) {
             if !parsed.is_empty() {
-                return Ok(StreamResult::ToolCalls(parsed));
+                return Ok(StreamResult::ToolCalls(parsed, spoken_text.trim().to_string(), true));
             }
         }
     }

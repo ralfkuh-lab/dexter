@@ -7,6 +7,7 @@ use tauri::{
     Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tokio_util::sync::CancellationToken;
 
 mod rag;
 mod sandbox;
@@ -43,6 +44,8 @@ pub struct AppState {
     recorded_samples: Mutex<Vec<f32>>,
     recording_sample_rate: Mutex<u32>,
     is_recording: Mutex<bool>,
+    // Cancellation token for the active pipeline — cancelled when user interrupts
+    pipeline_cancel: Mutex<CancellationToken>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -118,7 +121,7 @@ impl Default for VoiceConfig {
             vision_model: "llava".to_string(),
             chatterbox_url: "http://localhost:8005".to_string(),
             chatterbox_voice: "Anirban.wav".to_string(),
-            system_prompt: "You are a voice assistant running on the user's desktop. The conversation happens entirely through voice — the user speaks into their microphone, their speech is transcribed to text via Whisper (STT), sent to you as a message, and your response is converted back to speech via Chatterbox (TTS) and played through their speakers. You can hear them and they can hear you — treat this as a natural spoken conversation. If they ask \"can you hear me\" the answer is yes. Keep responses concise and conversational — 2-3 sentences max. No markdown, no code blocks, no bullet points, no numbered lists, no special formatting. Write exactly as you would speak out loud. Avoid colons in your responses as they cause unnatural pauses in TTS.".to_string(),
+            system_prompt: "You are a voice assistant running on the user's desktop. The conversation happens entirely through voice — the user speaks into their microphone, their speech is transcribed to text via Whisper (STT), sent to you as a message, and your response is converted back to speech via Chatterbox Turbo (TTS) and played through their speakers. You can hear them and they can hear you — treat this as a natural spoken conversation. If they ask \"can you hear me\" the answer is yes.\n\nKeep responses concise and conversational — 2-3 sentences max. No markdown, no code blocks, no bullet points, no numbered lists, no special formatting. Write exactly as you would speak out loud. Avoid colons in your responses as they cause unnatural pauses in TTS.\n\nYou can express emotions naturally using these paralinguistic tags inline with your speech — use them sparingly and only when they genuinely fit the moment:\n[laugh] [chuckle] [sigh] [gasp] [cough] [clear throat] [sniff] [groan] [shush]\nExample — \"Oh wow, that's actually hilarious [laugh] I didn't expect that at all.\"\nDo NOT overuse them. Most responses need zero tags. Only use them when a human would genuinely make that sound.\n\nWhen you decide to use a tool, ALWAYS say what you're about to do first in a short natural sentence before calling the tool. For example — \"Let me take a look at your screen\" before taking a screenshot, \"Let me search the web for that\" before fetching a page, \"Let me check the time\" before getting the time, \"One sec, let me run that command\" before executing a shell command. This way the user hears what's happening instead of waiting in silence.".to_string(),
             tools: ToolsConfig::default(),
             sandbox: sandbox::SandboxConfig::default(),
         }
@@ -290,17 +293,20 @@ fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     // Process in background
+    let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = process_pipeline(app_handle.clone(), samples, sample_rate, config).await {
-            eprintln!("Pipeline error: {}", e);
-            let _ = app_handle.emit(
-                "processing",
-                ProcessingState {
-                    stage: "error".to_string(),
-                    text: e,
-                },
-            );
+        if let Err(e) = process_pipeline(app_handle.clone(), samples, sample_rate, config, cancel_token).await {
+            if e != "interrupted" {
+                eprintln!("Pipeline error: {}", e);
+                let _ = app_handle.emit(
+                    "processing",
+                    ProcessingState {
+                        stage: "error".to_string(),
+                        text: e,
+                    },
+                );
+            }
         }
     });
 
@@ -312,6 +318,7 @@ async fn process_pipeline(
     samples: Vec<f32>,
     sample_rate: u32,
     config: VoiceConfig,
+    cancel: CancellationToken,
 ) -> Result<(), String> {
     // Stage 1: Transcribe
     app.emit(
@@ -330,6 +337,8 @@ async fn process_pipeline(
     .await
     .map_err(|e| format!("Transcription task failed: {}", e))?
     .map_err(|e| format!("Transcription failed: {}", e))?;
+
+    if cancel.is_cancelled() { return Err("interrupted".to_string()); }
 
     if transcript.trim().is_empty() {
         app.emit(
@@ -382,10 +391,9 @@ async fn process_pipeline(
     let mut sentence_index: u32 = 0;
     let mut full_text = String::new();
 
-    // We need to run the streaming LLM and TTS pipeline.
-    // The LLM might return tool calls (loop) or content (stream to TTS).
     let app_clone = app.clone();
     let config_clone = config.clone();
+    let cancel_llm = cancel.clone();
 
     let llm_handle = {
         let tools = tools.clone();
@@ -397,44 +405,93 @@ async fn process_pipeline(
             let mut all_msgs = all_messages;
 
             for _round in 0..max_tool_rounds {
-                let result = voice::chat_streaming(&config, &all_msgs, &tools, &sentence_tx)
-                    .await
-                    .map_err(|e| format!("LLM failed: {}", e))?;
+                if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+
+                let result = tokio::select! {
+                    _ = cancel_llm.cancelled() => { return Err("interrupted".to_string()); }
+                    r = voice::chat_streaming(&config, &all_msgs, &tools, &sentence_tx) => {
+                        r.map_err(|e| format!("LLM failed: {}", e))?
+                    }
+                };
 
                 match result {
                     voice::StreamResult::Content(text) => {
-                        // Model responded with content — we're done
                         return Ok::<String, String>(text);
                     }
-                    voice::StreamResult::ToolCalls(tool_calls) => {
-                        // Add assistant message with tool_calls
-                        let tool_calls_out: Vec<voice::OllamaToolCallOut> =
-                            tool_calls.iter().map(|tc| tc.to_out()).collect();
-                        all_msgs.push(ChatMessage {
-                            role: "assistant".to_string(),
-                            content: String::new(),
-                            tool_calls: Some(tool_calls_out),
-                        });
+                    voice::StreamResult::ToolCalls(tool_calls, preamble, xml_parsed) => {
+                        if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
 
-                        for tool_call in &tool_calls {
-                            let _ = app.emit(
-                                "processing",
-                                ProcessingState {
-                                    stage: "tool_call".to_string(),
-                                    text: tool_call.function.name.clone(),
-                                },
-                            );
+                        if xml_parsed {
+                            // XML-parsed tool calls: model emitted XML as text.
+                            // Add the preamble as assistant content, then inject
+                            // tool results as a user message (model doesn't understand
+                            // native tool protocol).
+                            if !preamble.is_empty() {
+                                all_msgs.push(ChatMessage {
+                                    role: "assistant".to_string(),
+                                    content: preamble,
+                                    tool_calls: None,
+                                });
+                            }
 
-                            let result_text = execute_tool(&app, &config, tool_call).await;
+                            let mut tool_results = String::new();
+                            for tool_call in &tool_calls {
+                                if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+
+                                let _ = app.emit(
+                                    "processing",
+                                    ProcessingState {
+                                        stage: "tool_call".to_string(),
+                                        text: tool_call.function.name.clone(),
+                                    },
+                                );
+
+                                let result_text = execute_tool(&app, &config, tool_call).await;
+                                tool_results.push_str(&format!(
+                                    "[Tool result for {}]: {}\n",
+                                    tool_call.function.name, result_text
+                                ));
+                            }
 
                             all_msgs.push(ChatMessage {
-                                role: "tool".to_string(),
-                                content: result_text,
+                                role: "user".to_string(),
+                                content: format!(
+                                    "Here are the tool results. Use them to answer my previous question naturally. Do NOT call tools again.\n\n{}",
+                                    tool_results.trim()
+                                ),
                                 tool_calls: None,
                             });
+                        } else {
+                            // Native Ollama tool calls: use proper tool protocol
+                            let tool_calls_out: Vec<voice::OllamaToolCallOut> =
+                                tool_calls.iter().map(|tc| tc.to_out()).collect();
+                            all_msgs.push(ChatMessage {
+                                role: "assistant".to_string(),
+                                content: preamble,
+                                tool_calls: Some(tool_calls_out),
+                            });
+
+                            for tool_call in &tool_calls {
+                                if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+
+                                let _ = app.emit(
+                                    "processing",
+                                    ProcessingState {
+                                        stage: "tool_call".to_string(),
+                                        text: tool_call.function.name.clone(),
+                                    },
+                                );
+
+                                let result_text = execute_tool(&app, &config, tool_call).await;
+
+                                all_msgs.push(ChatMessage {
+                                    role: "tool".to_string(),
+                                    content: result_text,
+                                    tool_calls: None,
+                                });
+                            }
                         }
 
-                        // Emit thinking state before next round
                         let _ = app.emit(
                             "processing",
                             ProcessingState {
@@ -442,19 +499,20 @@ async fn process_pipeline(
                                 text: "Thinking...".to_string(),
                             },
                         );
-                        // Loop continues — stream again with tool results
                     }
                 }
             }
 
             // Hit max rounds — do one final stream without tools
+            if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+
             let result = voice::chat_streaming(&config, &all_msgs, &[], &sentence_tx)
                 .await
                 .map_err(|e| format!("LLM failed: {}", e))?;
 
             match result {
                 voice::StreamResult::Content(text) => Ok(text),
-                _ => Err("Model returned tool calls after max rounds".to_string()),
+                voice::StreamResult::ToolCalls(_, _, _) => Err("Model returned tool calls after max rounds".to_string()),
             }
         })
     };
@@ -463,7 +521,10 @@ async fn process_pipeline(
     drop(sentence_tx);
 
     // Process sentences as they arrive from the stream → TTS → audio
+    // Check cancellation between each TTS synthesis
     while let Some(sentence) = sentence_rx.recv().await {
+        if cancel.is_cancelled() { break; }
+
         full_text.push_str(&sentence);
         full_text.push(' ');
 
@@ -476,8 +537,15 @@ async fn process_pipeline(
         )
         .map_err(|e: tauri::Error| e.to_string())?;
 
-        match voice::synthesize(&config, &sentence).await {
+        // Race TTS synthesis against cancellation
+        let tts_result = tokio::select! {
+            _ = cancel.cancelled() => { break; }
+            r = voice::synthesize(&config, &sentence) => r
+        };
+
+        match tts_result {
             Ok(audio_base64) => {
+                if cancel.is_cancelled() { break; }
                 app.emit("play_audio_chunk", AudioChunk {
                     index: sentence_index,
                     audio: audio_base64,
@@ -489,6 +557,11 @@ async fn process_pipeline(
                 eprintln!("TTS failed for sentence: {}", e);
             }
         }
+    }
+
+    if cancel.is_cancelled() {
+        llm_handle.abort(); // kill the LLM task
+        return Err("interrupted".to_string());
     }
 
     let full_response = llm_handle
@@ -619,6 +692,7 @@ pub fn run() {
             recorded_samples: Mutex::new(Vec::new()),
             recording_sample_rate: Mutex::new(44100),
             is_recording: Mutex::new(false),
+            pipeline_cancel: Mutex::new(CancellationToken::new()),
         })
         .setup(|app| {
             // Build tray menu
@@ -678,10 +752,21 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Register global shortcut (Cmd+Shift+Space) in Rust so it works when window is hidden
+            // Register global shortcut in Rust so it works when window is hidden
             app.global_shortcut().on_shortcut("Shift+Z", |app, _shortcut, event| {
                 match event.state {
                     ShortcutState::Pressed => {
+                        // Cancel any running pipeline first
+                        {
+                            let state = app.state::<AppState>();
+                            let mut cancel = state.pipeline_cancel.lock().unwrap();
+                            cancel.cancel(); // signal the running pipeline to stop
+                            *cancel = CancellationToken::new(); // fresh token for next pipeline
+                        }
+
+                        // Tell frontend to stop audio and reset
+                        let _ = app.emit("pipeline_interrupted", ());
+
                         // Show window at bottom-right and start recording
                         if let Some(window) = app.get_webview_window("main") {
                             if let Ok(Some(monitor)) = window.current_monitor() {
@@ -724,6 +809,9 @@ pub fn run() {
                         let state = app.state::<AppState>();
                         *state.is_recording.lock().unwrap() = false;
 
+                        // Grab the current cancel token for this pipeline
+                        let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
+
                         let app_clone = app.clone();
                         // Small delay to let recording thread finish, then process
                         std::thread::spawn(move || {
@@ -743,12 +831,14 @@ pub fn run() {
                             }
 
                             tauri::async_runtime::spawn(async move {
-                                if let Err(e) = process_pipeline(app_clone.clone(), samples, sample_rate, config).await {
-                                    eprintln!("Pipeline error: {}", e);
-                                    let _ = app_clone.emit("processing", ProcessingState {
-                                        stage: "error".to_string(),
-                                        text: e,
-                                    });
+                                if let Err(e) = process_pipeline(app_clone.clone(), samples, sample_rate, config, cancel_token).await {
+                                    if e != "interrupted" {
+                                        eprintln!("Pipeline error: {}", e);
+                                        let _ = app_clone.emit("processing", ProcessingState {
+                                            stage: "error".to_string(),
+                                            text: e,
+                                        });
+                                    }
                                 }
                             });
                         });

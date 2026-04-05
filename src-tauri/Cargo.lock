@@ -4826,6 +4826,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]
@@ -5221,6 +5222,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "whisper-rs",
 ]
 
