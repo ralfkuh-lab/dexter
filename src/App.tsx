@@ -30,8 +30,11 @@ interface SandboxConfig {
 
 interface VoiceConfig {
   whisper_model_path: string;
-  ollama_url: string;
-  ollama_model: string;
+  stt_provider: string;
+  whisper_server_url: string;
+  llm_provider: string;
+  llm_base_url: string;
+  llm_model: string;
   embed_model: string;
   vision_model: string;
   chatterbox_url: string;
@@ -73,23 +76,26 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
   return (
     <div className="flex flex-col gap-5 p-5 px-6">
       <FieldGroup title="Speech Recognition">
-        <Field label="Whisper Model Path">
+        <Field label="STT Provider">
+          <Input value={config.stt_provider} onChange={(v) => setConfig({ ...config, stt_provider: v })} placeholder="whisper-http" />
+        </Field>
+        <Field label="Whisper Server URL">
+          <Input value={config.whisper_server_url} onChange={(v) => setConfig({ ...config, whisper_server_url: v })} placeholder="http://127.0.0.1:8350" />
+        </Field>
+        <Field label="Native Whisper Model Path">
           <Input value={config.whisper_model_path} onChange={(v) => setConfig({ ...config, whisper_model_path: v })} />
         </Field>
       </FieldGroup>
 
       <FieldGroup title="Language Model">
-        <Field label="Ollama URL">
-          <Input value={config.ollama_url} onChange={(v) => setConfig({ ...config, ollama_url: v })} />
+        <Field label="Provider">
+          <Input value={config.llm_provider} onChange={(v) => setConfig({ ...config, llm_provider: v })} placeholder="openai" />
+        </Field>
+        <Field label="LLM Base URL">
+          <Input value={config.llm_base_url} onChange={(v) => setConfig({ ...config, llm_base_url: v })} placeholder="http://127.0.0.1:8081" />
         </Field>
         <Field label="Chat Model">
-          <Input value={config.ollama_model} onChange={(v) => setConfig({ ...config, ollama_model: v })} />
-        </Field>
-        <Field label="Embedding Model">
-          <Input value={config.embed_model} onChange={(v) => setConfig({ ...config, embed_model: v })} placeholder="nomic-embed-text" />
-        </Field>
-        <Field label="Vision Model">
-          <Input value={config.vision_model} onChange={(v) => setConfig({ ...config, vision_model: v })} placeholder="llava (for screenshot tool)" />
+          <Input value={config.llm_model} onChange={(v) => setConfig({ ...config, llm_model: v })} placeholder="gemma" />
         </Field>
       </FieldGroup>
 
@@ -126,7 +132,7 @@ const TOOL_DEFINITIONS: { key: keyof ToolsConfig; name: string; desc: string; ic
   { key: "get_current_time", name: "Current Time", desc: "Get the current date, time, and day of week", icon: "🕐" },
   { key: "list_apps", name: "Running Apps", desc: "List currently running applications", icon: "🖥" },
   { key: "web_fetch", name: "Web Fetch", desc: "Fetch and read web pages for information", icon: "🕸" },
-  { key: "run_command", name: "Shell Command", desc: "Execute terminal commands on your Mac", icon: "⚡" },
+  { key: "run_command", name: "Shell Command", desc: "Execute terminal commands in the platform shell", icon: "⚡" },
 ];
 
 function ToolsTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: VoiceConfig) => void }) {
@@ -444,7 +450,6 @@ function Settings() {
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "config", label: "Config" },
     { id: "tools", label: "Tools" },
-    { id: "knowledge", label: "Knowledge" },
   ];
 
   return (
@@ -495,6 +500,7 @@ function Settings() {
 function Orb() {
   const [stage, setStage] = useState("idle");
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
+  const [mouseRecording, setMouseRecording] = useState(false);
   const bubblesEndRef = useRef<HTMLDivElement>(null);
 
   const audioQueueRef = useRef<{ index: number; url: string }[]>([]);
@@ -509,6 +515,32 @@ function Orb() {
 
   const addBubble = (role: ChatBubble["role"], text: string) => {
     setBubbles((prev) => [...prev, { role, text, id: bubbleId++ }]);
+  };
+
+  const beginManualRecording = async () => {
+    if (mouseRecording) return;
+    stopAllAudio();
+    setMouseRecording(true);
+    setStage("listening");
+    try {
+      await invoke("start_recording");
+    } catch (e) {
+      setMouseRecording(false);
+      setStage("error");
+      addBubble("status", String(e));
+    }
+  };
+
+  const endManualRecording = async () => {
+    if (!mouseRecording) return;
+    setMouseRecording(false);
+    setStage("transcribing");
+    try {
+      await invoke("stop_recording_and_process");
+    } catch (e) {
+      setStage("error");
+      addBubble("status", String(e));
+    }
   };
 
   const stopAllAudio = () => {
@@ -669,7 +701,22 @@ function Orb() {
 
       {/* Orb */}
       <div className="flex justify-center pb-5 pt-2 shrink-0">
-        <div className={`${orbClass} relative w-20 h-20`}>
+        <div
+          className={`${orbClass} relative w-20 h-20 cursor-pointer select-none`}
+          title="Hold to talk"
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            beginManualRecording();
+          }}
+          onPointerUp={(e) => {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+            endManualRecording();
+          }}
+          onPointerCancel={endManualRecording}
+          onPointerLeave={() => {
+            if (mouseRecording) endManualRecording();
+          }}
+        >
           <div className={`orb-glow absolute -inset-[5%] rounded-full blur-[14px] z-[1] ${glowAnim}`} />
           <div className="orb-core absolute inset-[18%] rounded-full z-[2]" />
           <div className={`orb-ring absolute inset-[8%] rounded-full border-[1.5px] z-[3] ${ringAnim}`} />

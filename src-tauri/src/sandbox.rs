@@ -240,7 +240,7 @@ fn build_safe_env() -> Vec<(String, String)> {
         .collect();
 
     // Override PATH to only include standard locations
-    let safe_path = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+    let safe_path = platform_safe_path();
     env.retain(|(k, _)| k != "PATH");
     env.push(("PATH".to_string(), safe_path.to_string()));
 
@@ -251,6 +251,36 @@ fn build_safe_env() -> Vec<(String, String)> {
     }
 
     env
+}
+
+#[cfg(target_os = "macos")]
+fn platform_safe_path() -> &'static str {
+    "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+}
+
+#[cfg(target_os = "linux")]
+fn platform_safe_path() -> &'static str {
+    "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+}
+
+#[cfg(target_os = "windows")]
+fn platform_safe_path() -> &'static str {
+    r"C:\Windows\System32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0"
+}
+
+#[cfg(target_os = "macos")]
+fn platform_shell() -> (&'static str, [&'static str; 1]) {
+    ("zsh", ["-c"])
+}
+
+#[cfg(target_os = "linux")]
+fn platform_shell() -> (&'static str, [&'static str; 1]) {
+    ("sh", ["-c"])
+}
+
+#[cfg(target_os = "windows")]
+fn platform_shell() -> (&'static str, [&'static str; 1]) {
+    ("powershell", ["-Command"])
 }
 
 /// Execute a command in guarded mode.
@@ -269,8 +299,10 @@ fn run_guarded(
     let env_clone = env.clone();
 
     std::thread::spawn(move || {
-        let result = Command::new("zsh")
-            .args(["-c", &cmd])
+        let (shell, shell_args) = platform_shell();
+        let result = Command::new(shell)
+            .args(shell_args)
+            .arg(&cmd)
             .current_dir(&workspace)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())

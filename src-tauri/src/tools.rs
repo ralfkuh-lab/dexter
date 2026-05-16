@@ -1,9 +1,11 @@
+#[cfg(target_os = "macos")]
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::process::Command;
 
 /// Capture the screen on macOS using screencapture, resize for vision model.
 /// `monitor`: None = active display (with mouse cursor), Some(n) = display index (1-based).
 /// Returns the screenshot as a base64-encoded JPEG (resized to max 1280px).
+#[cfg(target_os = "macos")]
 pub fn take_screenshot(monitor: Option<u32>) -> Result<String, String> {
     let tmp_raw = std::env::temp_dir().join("voice-assistant-screenshot-raw.png");
     let tmp_resized = std::env::temp_dir().join("voice-assistant-screenshot.jpg");
@@ -58,8 +60,14 @@ pub fn take_screenshot(monitor: Option<u32>) -> Result<String, String> {
     Ok(STANDARD.encode(&bytes))
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn take_screenshot(_monitor: Option<u32>) -> Result<String, String> {
+    Err("Screenshot capture is not implemented for this platform yet.".to_string())
+}
+
 /// Get the display index where the mouse cursor currently is.
 /// Uses CoreGraphics via a small Python snippet (macOS built-in).
+#[cfg(target_os = "macos")]
 fn get_active_display() -> Option<u32> {
     // Get mouse location and match to display
     let output = Command::new("python3")
@@ -142,6 +150,7 @@ pub async fn describe_screenshot(
 }
 
 /// Read the system clipboard text on macOS using pbpaste.
+#[cfg(target_os = "macos")]
 pub fn read_clipboard() -> Result<String, String> {
     let output = Command::new("pbpaste")
         .output()
@@ -154,10 +163,74 @@ pub fn read_clipboard() -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|e| format!("Clipboard not valid UTF-8: {}", e))
 }
 
-/// Open a URL in the default browser on macOS.
+#[cfg(target_os = "linux")]
+pub fn read_clipboard() -> Result<String, String> {
+    let wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+    let candidates: Vec<(&str, Vec<&str>)> = if wayland {
+        vec![("wl-paste", vec!["--no-newline"]), ("xclip", vec!["-selection", "clipboard", "-o"])]
+    } else {
+        vec![("xclip", vec!["-selection", "clipboard", "-o"]), ("wl-paste", vec!["--no-newline"])]
+    };
+
+    for (cmd, args) in candidates {
+        if let Ok(output) = Command::new(cmd).args(args).output() {
+            if output.status.success() {
+                return String::from_utf8(output.stdout)
+                    .map_err(|e| format!("Clipboard not valid UTF-8: {}", e));
+            }
+        }
+    }
+
+    Err("No supported clipboard helper found. Install wl-clipboard or xclip.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+pub fn read_clipboard() -> Result<String, String> {
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", "Get-Clipboard"])
+        .output()
+        .map_err(|e| format!("Failed to run PowerShell clipboard command: {}", e))?;
+
+    if !output.status.success() {
+        return Err("PowerShell clipboard command exited with non-zero status".to_string());
+    }
+
+    String::from_utf8(output.stdout).map_err(|e| format!("Clipboard not valid UTF-8: {}", e))
+}
+
+/// Open a URL in the default browser.
+#[cfg(target_os = "macos")]
 pub fn open_url(url: &str) -> Result<String, String> {
     let status = Command::new("open")
         .arg(url)
+        .status()
+        .map_err(|e| format!("Failed to open URL: {}", e))?;
+
+    if status.success() {
+        Ok(format!("Opened {} in the default browser.", url))
+    } else {
+        Err("Failed to open URL".to_string())
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn open_url(url: &str) -> Result<String, String> {
+    let status = Command::new("xdg-open")
+        .arg(url)
+        .status()
+        .map_err(|e| format!("Failed to open URL: {}", e))?;
+
+    if status.success() {
+        Ok(format!("Opened {} in the default browser.", url))
+    } else {
+        Err("Failed to open URL".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn open_url(url: &str) -> Result<String, String> {
+    let status = Command::new("cmd")
+        .args(["/C", "start", "", url])
         .status()
         .map_err(|e| format!("Failed to open URL: {}", e))?;
 
@@ -290,6 +363,7 @@ fn strip_html(html: &str) -> String {
 }
 
 /// List running applications on macOS.
+#[cfg(target_os = "macos")]
 pub fn list_running_apps() -> Result<String, String> {
     let output = Command::new("osascript")
         .args([
@@ -301,6 +375,41 @@ pub fn list_running_apps() -> Result<String, String> {
 
     if !output.status.success() {
         return Err("Could not list running apps".to_string());
+    }
+
+    String::from_utf8(output.stdout).map_err(|e| format!("Output not valid UTF-8: {}", e))
+}
+
+#[cfg(target_os = "linux")]
+pub fn list_running_apps() -> Result<String, String> {
+    if let Ok(output) = Command::new("wmctrl").arg("-lx").output() {
+        if output.status.success() {
+            return String::from_utf8(output.stdout)
+                .map_err(|e| format!("Output not valid UTF-8: {}", e));
+        }
+    }
+
+    let output = Command::new("ps")
+        .args(["-eo", "comm=", "--sort=comm"])
+        .output()
+        .map_err(|e| format!("Failed to list processes: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Could not list running processes".to_string());
+    }
+
+    String::from_utf8(output.stdout).map_err(|e| format!("Output not valid UTF-8: {}", e))
+}
+
+#[cfg(target_os = "windows")]
+pub fn list_running_apps() -> Result<String, String> {
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", "Get-Process | Select-Object -ExpandProperty ProcessName | Sort-Object -Unique"])
+        .output()
+        .map_err(|e| format!("Failed to list processes: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Could not list running processes".to_string());
     }
 
     String::from_utf8(output.stdout).map_err(|e| format!("Output not valid UTF-8: {}", e))

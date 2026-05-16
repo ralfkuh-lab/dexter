@@ -30,7 +30,7 @@ struct AudioChunk {
 pub struct ChatMessage {
     role: String,
     content: String,
-    /// Preserved tool_calls from assistant messages (for Ollama protocol).
+    /// Preserved tool_calls from assistant messages.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     tool_calls: Option<Vec<voice::OllamaToolCallOut>>,
 }
@@ -75,23 +75,52 @@ fn default_true() -> bool {
 impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
-            search_knowledge: true,
-            screenshot: true,
-            read_clipboard: true,
-            open_url: true,
-            get_current_time: true,
-            list_apps: true,
+            search_knowledge: false,
+            screenshot: false,
+            read_clipboard: false,
+            open_url: false,
+            get_current_time: false,
+            list_apps: false,
             run_command: false, // Off by default — powerful tool
-            web_fetch: true,
+            web_fetch: false,
         }
     }
+}
+
+fn default_llm_provider() -> String {
+    "openai".to_string()
+}
+
+fn default_llm_base_url() -> String {
+    "http://127.0.0.1:8081".to_string()
+}
+
+fn default_llm_model() -> String {
+    "gemma".to_string()
+}
+
+fn default_stt_provider() -> String {
+    "whisper-http".to_string()
+}
+
+fn default_whisper_server_url() -> String {
+    "http://127.0.0.1:8350".to_string()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VoiceConfig {
     pub whisper_model_path: String,
-    pub ollama_url: String,
-    pub ollama_model: String,
+    #[serde(default = "default_stt_provider")]
+    pub stt_provider: String,
+    #[serde(default = "default_whisper_server_url")]
+    pub whisper_server_url: String,
+    #[serde(default = "default_llm_provider")]
+    pub llm_provider: String,
+    #[serde(default = "default_llm_base_url", alias = "ollama_url")]
+    pub llm_base_url: String,
+    #[serde(default = "default_llm_model", alias = "ollama_model")]
+    pub llm_model: String,
+    #[serde(default)]
     pub embed_model: String,
     #[serde(default)]
     pub vision_model: String,
@@ -115,10 +144,13 @@ impl Default for VoiceConfig {
             .unwrap_or_default();
         Self {
             whisper_model_path: default_model,
-            ollama_url: "http://localhost:11434".to_string(),
-            ollama_model: "qwen3:4b".to_string(),
-            embed_model: "nomic-embed-text".to_string(),
-            vision_model: "llava".to_string(),
+            stt_provider: default_stt_provider(),
+            whisper_server_url: default_whisper_server_url(),
+            llm_provider: default_llm_provider(),
+            llm_base_url: default_llm_base_url(),
+            llm_model: default_llm_model(),
+            embed_model: String::new(),
+            vision_model: String::new(),
             chatterbox_url: "http://localhost:8005".to_string(),
             chatterbox_voice: "Anirban.wav".to_string(),
             system_prompt: "You are a voice assistant running on the user's desktop. The conversation happens entirely through voice — the user speaks into their microphone, their speech is transcribed to text via Whisper (STT), sent to you as a message, and your response is converted back to speech via Chatterbox Turbo (TTS) and played through their speakers. You can hear them and they can hear you — treat this as a natural spoken conversation. If they ask \"can you hear me\" the answer is yes.\n\nKeep responses concise and conversational — 2-3 sentences max. No markdown, no code blocks, no bullet points, no numbered lists, no special formatting. Write exactly as you would speak out loud. Avoid colons in your responses as they cause unnatural pauses in TTS.\n\nYou can express emotions naturally using these paralinguistic tags inline with your speech — use them sparingly and only when they genuinely fit the moment:\n[laugh] [chuckle] [sigh] [gasp] [cough] [clear throat] [sniff] [groan] [shush]\nExample — \"Oh wow, that's actually hilarious [laugh] I didn't expect that at all.\"\nDo NOT overuse them. Most responses need zero tags. Only use them when a human would genuinely make that sound.\n\nWhen you decide to use a tool, ALWAYS say what you're about to do first in a short natural sentence before calling the tool. For example — \"Let me take a look at your screen\" before taking a screenshot, \"Let me search the web for that\" before fetching a page, \"Let me check the time\" before getting the time, \"One sec, let me run that command\" before executing a shell command. This way the user hears what's happening instead of waiting in silence.".to_string(),
@@ -182,16 +214,49 @@ fn clear_messages(state: tauri::State<AppState>) {
 
 #[tauri::command]
 fn show_window(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    reveal_main_window(&app, true);
 }
 
 #[tauri::command]
 fn hide_window(app: tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
+    }
+}
+
+fn reveal_main_window(app: &tauri::AppHandle, reload: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        let win_w = 380.0;
+        let win_h = 420.0;
+        let _ = window.set_size(tauri::LogicalSize::new(win_w, win_h));
+
+        #[cfg(target_os = "linux")]
+        {
+            let _ = window.set_position(tauri::PhysicalPosition::new(3000, 1500));
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let screen = monitor.size();
+            let scale = monitor.scale_factor();
+            let padding = 20.0 * scale;
+            let bottom_reserved = 80.0 * scale;
+            let physical_w = win_w * scale;
+            let physical_h = win_h * scale;
+            let x = screen.width as f64 - physical_w - padding;
+            let y = screen.height as f64 - physical_h - padding - bottom_reserved;
+            let _ = window.set_position(tauri::PhysicalPosition::new(
+                x.max(0.0) as i32,
+                y.max(0.0) as i32,
+            ));
+        }
+
+        if reload {
+            let _ = window.eval("window.location.reload()");
+        }
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
     }
 }
 
@@ -207,7 +272,7 @@ async fn ingest_text(
     let config = state.config.lock().unwrap().clone();
     state
         .rag_store
-        .ingest(&source, &text, &config.ollama_url, &config.embed_model)
+        .ingest(&source, &text, &config.llm_base_url, &config.embed_model)
         .await
         .map_err(|e| format!("Ingest failed: {}", e))
 }
@@ -223,7 +288,7 @@ async fn ingest_file(app: tauri::AppHandle, path: String) -> Result<usize, Strin
     let config = state.config.lock().unwrap().clone();
     state
         .rag_store
-        .ingest(&source, &text, &config.ollama_url, &config.embed_model)
+        .ingest(&source, &text, &config.llm_base_url, &config.embed_model)
         .await
         .map_err(|e| format!("Ingest failed: {}", e))
 }
@@ -330,13 +395,19 @@ async fn process_pipeline(
     )
     .map_err(|e: tauri::Error| e.to_string())?;
 
-    let model_path = config.whisper_model_path.clone();
-    let transcript = tokio::task::spawn_blocking(move || {
-        voice::transcribe_audio(&model_path, &samples, sample_rate)
-    })
-    .await
-    .map_err(|e| format!("Transcription task failed: {}", e))?
-    .map_err(|e| format!("Transcription failed: {}", e))?;
+    let transcript = if config.stt_provider == "native" {
+        let model_path = config.whisper_model_path.clone();
+        tokio::task::spawn_blocking(move || {
+            voice::transcribe_audio(&model_path, &samples, sample_rate)
+        })
+        .await
+        .map_err(|e| format!("Transcription task failed: {}", e))?
+        .map_err(|e| format!("Transcription failed: {}", e))?
+    } else {
+        voice::transcribe_audio_http(&config.whisper_server_url, &samples, sample_rate)
+            .await
+            .map_err(|e| format!("Transcription failed: {}", e))?
+    };
 
     if cancel.is_cancelled() { return Err("interrupted".to_string()); }
 
@@ -382,7 +453,11 @@ async fn process_pipeline(
 
     let all_messages = app.state::<AppState>().messages.lock().unwrap().clone();
 
-    let tools = voice::build_tools(&config.tools);
+    let tools = if config.llm_provider == "ollama" {
+        voice::build_tools(&config.tools)
+    } else {
+        Vec::new()
+    };
     let max_tool_rounds = 5;
 
     // Single streaming loop: stream with tools → if model returns tool calls,
@@ -596,7 +671,7 @@ async fn execute_tool(
                 .and_then(|v| v.as_str()).unwrap_or("").to_string();
 
             let results = rag_store
-                .search(&query, &config.ollama_url, &config.embed_model, 5)
+                .search(&query, &config.llm_base_url, &config.embed_model, 5)
                 .await
                 .unwrap_or_default();
 
@@ -625,11 +700,11 @@ async fn execute_tool(
             match tools::take_screenshot(monitor) {
                 Ok(image_b64) => {
                     let vision_model = if config.vision_model.is_empty() {
-                        &config.ollama_model
+                        &config.llm_model
                     } else {
                         &config.vision_model
                     };
-                    match tools::describe_screenshot(&config.ollama_url, vision_model, &image_b64, &question).await {
+                    match tools::describe_screenshot(&config.llm_base_url, vision_model, &image_b64, &question).await {
                         Ok(desc) => desc,
                         Err(e) => format!("Screenshot captured but vision model failed: {}. The model '{}' may not support image inputs — try setting a vision model like 'llava' in settings.", e, vision_model),
                     }
@@ -719,10 +794,7 @@ pub fn run() {
                 .tooltip("Voice Assistant — Hold Shift+Z to talk")
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        reveal_main_window(app, true);
                     }
                     "settings" => {
                         // If settings window already exists, just focus it
@@ -768,24 +840,7 @@ pub fn run() {
                         let _ = app.emit("pipeline_interrupted", ());
 
                         // Show window at bottom-right and start recording
-                        if let Some(window) = app.get_webview_window("main") {
-                            if let Ok(Some(monitor)) = window.current_monitor() {
-                                let screen = monitor.size();
-                                let scale = monitor.scale_factor();
-                                let win_w = 320.0;
-                                let win_h = 400.0;
-                                let padding = 20.0;
-                                let dock_offset = 80.0;
-                                let x = (screen.width as f64 / scale) - win_w - padding;
-                                let y = (screen.height as f64 / scale) - win_h - padding - dock_offset;
-                                let _ = window.set_position(tauri::PhysicalPosition::new(
-                                    (x * scale) as i32,
-                                    (y * scale) as i32,
-                                ));
-                            }
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        reveal_main_window(app, false);
                         let _ = app.emit("hotkey_pressed", ());
 
                         // Start recording

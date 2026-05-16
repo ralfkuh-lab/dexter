@@ -19,6 +19,7 @@ pub fn record_audio(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
 
     let config = device.default_input_config()?;
     let sample_rate = config.sample_rate().0;
+    let channels = config.channels() as usize;
 
     // Store sample rate in state
     {
@@ -35,7 +36,15 @@ pub fn record_audio(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
                 &config.into(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     let state = app_ref.state::<AppState>();
-                    state.recorded_samples.lock().unwrap().extend_from_slice(data);
+                    if channels <= 1 {
+                        state.recorded_samples.lock().unwrap().extend_from_slice(data);
+                    } else {
+                        let mono: Vec<f32> = data
+                            .chunks(channels)
+                            .map(|frame| frame.iter().copied().sum::<f32>() / frame.len() as f32)
+                            .collect();
+                        state.recorded_samples.lock().unwrap().extend_from_slice(&mono);
+                    }
                 },
                 |err| eprintln!("Audio stream error: {}", err),
                 None,
@@ -46,7 +55,15 @@ pub fn record_audio(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
             device.build_input_stream(
                 &config.into(),
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    let floats: Vec<f32> = data.iter().map(|&s| s as f32 / 32768.0).collect();
+                    let floats: Vec<f32> = if channels <= 1 {
+                        data.iter().map(|&s| s as f32 / 32768.0).collect()
+                    } else {
+                        data.chunks(channels)
+                            .map(|frame| {
+                                frame.iter().map(|&s| s as f32 / 32768.0).sum::<f32>() / frame.len() as f32
+                            })
+                            .collect()
+                    };
                     let state = app_ref.state::<AppState>();
                     state.recorded_samples.lock().unwrap().extend_from_slice(&floats);
                 },
@@ -72,6 +89,51 @@ pub fn record_audio(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
 
     // Stream drops here, stopping recording
     Ok(())
+}
+
+pub async fn transcribe_audio_http(
+    base_url: &str,
+    samples: &[f32],
+    source_sample_rate: u32,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let audio_16k = if source_sample_rate != 16000 {
+        resample(samples, source_sample_rate, 16000)
+    } else {
+        samples.to_vec()
+    };
+
+    let mut body = Vec::with_capacity(audio_16k.len() * std::mem::size_of::<f32>());
+    for sample in audio_16k {
+        body.extend_from_slice(&sample.to_le_bytes());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+
+    let resp = client
+        .post(format!("{}/transcribe", trim_base_url(base_url)))
+        .body(body)
+        .send()
+        .await?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Whisper HTTP error {}: {}", status, body).into());
+    }
+
+    let json: serde_json::Value = resp.json().await?;
+    if let Some(error) = json.get("error").and_then(|v| v.as_str()) {
+        return Err(format!("Whisper HTTP error: {}", error).into());
+    }
+
+    Ok(json
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string())
 }
 
 // ── Whisper Transcription (native) ──
@@ -138,7 +200,7 @@ fn resample(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     output
 }
 
-// ── Ollama Chat ──
+// ── LLM Chat ──
 
 #[derive(Serialize)]
 struct OllamaMessage {
@@ -205,6 +267,38 @@ impl OllamaToolCall {
 struct OllamaStreamChunk {
     message: Option<OllamaResponseMessage>,
     done: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct OpenAiMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct OpenAiChatRequest {
+    model: String,
+    messages: Vec<OpenAiMessage>,
+    stream: bool,
+    max_tokens: u32,
+    temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamChunk {
+    choices: Vec<OpenAiStreamChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamChoice {
+    delta: OpenAiDelta,
+}
+
+#[derive(Deserialize)]
+struct OpenAiDelta {
+    content: Option<String>,
 }
 
 /// Build tool definitions based on enabled tools in config.
@@ -381,6 +475,19 @@ pub async fn chat_streaming(
     tools: &[serde_json::Value],
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
+    if config.llm_provider == "ollama" {
+        return chat_streaming_ollama(config, messages, tools, sentence_tx).await;
+    }
+
+    chat_streaming_openai(config, messages, sentence_tx).await
+}
+
+async fn chat_streaming_ollama(
+    config: &VoiceConfig,
+    messages: &[ChatMessage],
+    tools: &[serde_json::Value],
+    sentence_tx: &mpsc::Sender<String>,
+) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
@@ -400,14 +507,14 @@ pub async fn chat_streaming(
     }
 
     let request = OllamaChatRequest {
-        model: config.ollama_model.clone(),
+        model: config.llm_model.clone(),
         messages: ollama_messages,
         stream: true,
         tools: if tools.is_empty() { None } else { Some(tools.to_vec()) },
     };
 
     let resp = client
-        .post(format!("{}/api/chat", config.ollama_url))
+        .post(format!("{}/api/chat", trim_base_url(&config.llm_base_url)))
         .json(&request)
         .send()
         .await?;
@@ -583,6 +690,141 @@ pub async fn chat_streaming(
     }
 
     Ok(StreamResult::Content(full_response.trim().to_string()))
+}
+
+async fn chat_streaming_openai(
+    config: &VoiceConfig,
+    messages: &[ChatMessage],
+    sentence_tx: &mpsc::Sender<String>,
+) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+
+    let mut openai_messages = vec![OpenAiMessage {
+        role: "system".to_string(),
+        content: config.system_prompt.clone(),
+    }];
+
+    for msg in messages {
+        if msg.role != "tool" {
+            openai_messages.push(OpenAiMessage {
+                role: msg.role.clone(),
+                content: msg.content.clone(),
+            });
+        }
+    }
+
+    let request = OpenAiChatRequest {
+        model: config.llm_model.clone(),
+        messages: openai_messages,
+        stream: true,
+        max_tokens: 512,
+        temperature: 0.6,
+        chat_template_kwargs: Some(serde_json::json!({ "enable_thinking": false })),
+    };
+
+    let resp = client
+        .post(openai_chat_completions_url(&config.llm_base_url))
+        .json(&request)
+        .send()
+        .await?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("LLM API error {}: {}", status, body).into());
+    }
+
+    use tokio_stream::StreamExt;
+
+    let mut full_response = String::new();
+    let mut sentence_buffer = String::new();
+    let mut byte_stream = resp.bytes_stream();
+    let mut line_buffer = Vec::new();
+
+    while let Some(chunk) = byte_stream.next().await {
+        let chunk = chunk?;
+        line_buffer.extend_from_slice(&chunk);
+
+        while let Some(newline_pos) = line_buffer.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = line_buffer.drain(..=newline_pos).collect();
+            let line_str = String::from_utf8_lossy(&line);
+            let line_str = line_str.trim();
+
+            if line_str.is_empty() || !line_str.starts_with("data:") {
+                continue;
+            }
+
+            let data = line_str.trim_start_matches("data:").trim();
+            if data == "[DONE]" {
+                break;
+            }
+
+            let Ok(stream_chunk) = serde_json::from_str::<OpenAiStreamChunk>(data) else {
+                continue;
+            };
+
+            for choice in stream_chunk.choices {
+                if let Some(content) = choice.delta.content {
+                    full_response.push_str(&content);
+                    sentence_buffer.push_str(&content);
+
+                    while let Some(split_pos) = find_sentence_end(&sentence_buffer) {
+                        let sentence: String = sentence_buffer.drain(..=split_pos).collect();
+                        let sentence = sentence.trim().to_string();
+                        if !sentence.is_empty() {
+                            let _ = sentence_tx.send(sentence).await;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !line_buffer.is_empty() {
+        let line_str = String::from_utf8_lossy(&line_buffer);
+        for raw_line in line_str.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || !line.starts_with("data:") {
+                continue;
+            }
+            let data = line.trim_start_matches("data:").trim();
+            if data == "[DONE]" {
+                continue;
+            }
+            if let Ok(stream_chunk) = serde_json::from_str::<OpenAiStreamChunk>(data) {
+                for choice in stream_chunk.choices {
+                    if let Some(content) = choice.delta.content {
+                        full_response.push_str(&content);
+                        sentence_buffer.push_str(&content);
+                    }
+                }
+            }
+        }
+    }
+
+    let remaining = sentence_buffer.trim().to_string();
+    if !remaining.is_empty() {
+        let _ = sentence_tx.send(remaining).await;
+    }
+
+    Ok(StreamResult::Content(full_response.trim().to_string()))
+}
+
+fn trim_base_url(url: &str) -> &str {
+    url.trim_end_matches('/')
+}
+
+fn openai_chat_completions_url(base_url: &str) -> String {
+    let base = trim_base_url(base_url);
+    if base.ends_with("/v1") {
+        format!("{}/chat/completions", base)
+    } else if base.ends_with("/v1/chat/completions") {
+        base.to_string()
+    } else {
+        format!("{}/v1/chat/completions", base)
+    }
 }
 
 /// Parse XML-style tool calls that some models emit as text.
