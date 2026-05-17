@@ -49,6 +49,8 @@ pub struct AppState {
     is_recording: Mutex<bool>,
     // Cancellation token for the active pipeline — cancelled when user interrupts
     pipeline_cancel: Mutex<CancellationToken>,
+    // Discovered max context window for the configured LLM model, if known.
+    pub ctx_max: Mutex<Option<u32>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -183,6 +185,8 @@ pub struct VoiceConfig {
     pub window: WindowConfig,
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
+    #[serde(default = "default_true")]
+    pub show_stats: bool,
 }
 
 impl Default for VoiceConfig {
@@ -202,6 +206,7 @@ impl Default for VoiceConfig {
             sandbox: sandbox::SandboxConfig::default(),
             window: WindowConfig::default(),
             hotkey: default_hotkey(),
+            show_stats: true,
         }
     }
 }
@@ -268,7 +273,10 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Voic
         let _ = window.set_decorations(config.window.decorations);
     }
 
-    let old_hotkey = { state.config.lock().unwrap().hotkey.clone() };
+    let (old_hotkey, old_base, old_model) = {
+        let cfg = state.config.lock().unwrap();
+        (cfg.hotkey.clone(), cfg.llm_base_url.clone(), cfg.llm_model.clone())
+    };
     if old_hotkey != config.hotkey {
         let _ = app.global_shortcut().unregister(old_hotkey.as_str());
         if let Err(e) = register_ptt_shortcut(&app, &config.hotkey) {
@@ -278,8 +286,13 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Voic
         }
     }
 
+    let llm_changed = old_base != config.llm_base_url || old_model != config.llm_model;
     *state.config.lock().unwrap() = config;
     let _ = app.emit("config_changed", ());
+
+    if llm_changed {
+        refresh_ctx_max(&app);
+    }
 }
 
 #[tauri::command]
@@ -372,6 +385,76 @@ fn handle_ptt_release(app: &tauri::AppHandle) {
                 }
             }
         });
+    });
+}
+
+/// Best-effort: ask the LLM backend for the active model's max context window.
+/// Tries llama.cpp `/props` first, then OpenAI-style `/v1/models` (vLLM exposes
+/// `max_model_len`). Returns None if nothing matches.
+async fn discover_ctx_max(base_url: &str, model: &str) -> Option<u32> {
+    let base = base_url.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .ok()?;
+
+    // 1) llama.cpp /props → default_generation_settings.n_ctx (or top-level n_ctx)
+    if let Ok(resp) = client.get(format!("{}/props", base)).send().await {
+        if let Ok(v) = resp.json::<serde_json::Value>().await {
+            let candidates = [
+                v.pointer("/default_generation_settings/n_ctx"),
+                v.pointer("/default_generation_settings/n_ctx_train"),
+                v.pointer("/n_ctx"),
+            ];
+            for c in candidates.iter().flatten() {
+                if let Some(n) = c.as_u64() {
+                    return Some(n as u32);
+                }
+            }
+        }
+    }
+
+    // 2) OpenAI-style /v1/models — pick the entry whose id matches `model`,
+    //    look for common context-window fields.
+    if let Ok(resp) = client.get(format!("{}/v1/models", base)).send().await {
+        if let Ok(v) = resp.json::<serde_json::Value>().await {
+            if let Some(data) = v.get("data").and_then(|d| d.as_array()) {
+                let entry = data.iter().find(|e| {
+                    e.get("id").and_then(|s| s.as_str()) == Some(model)
+                }).or_else(|| data.first());
+                if let Some(e) = entry {
+                    for key in [
+                        "max_model_len",
+                        "context_window",
+                        "context_length",
+                        "n_ctx",
+                    ] {
+                        if let Some(n) = e.get(key).and_then(|x| x.as_u64()) {
+                            return Some(n as u32);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn refresh_ctx_max(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let (base, model) = {
+            let state = app.state::<AppState>();
+            let cfg = state.config.lock().unwrap();
+            (cfg.llm_base_url.clone(), cfg.llm_model.clone())
+        };
+        let ctx = discover_ctx_max(&base, &model).await;
+        {
+            let state = app.state::<AppState>();
+            *state.ctx_max.lock().unwrap() = ctx;
+        }
+        let _ = app.emit("config_changed", ());
     });
 }
 
@@ -668,7 +751,7 @@ async fn process_pipeline(
                 let forced_tool_this_round = forced_tool_next.take();
                 let result = tokio::select! {
                     _ = cancel_llm.cancelled() => { return Err("interrupted".to_string()); }
-                    r = voice::chat_streaming(&config, &all_msgs, &tools, forced_tool_this_round.as_deref(), &sentence_tx) => {
+                    r = voice::chat_streaming(&app, &config, &all_msgs, &tools, forced_tool_this_round.as_deref(), &sentence_tx) => {
                         r.map_err(|e| format!("LLM failed: {}", e))?
                     }
                 };
@@ -802,7 +885,7 @@ async fn process_pipeline(
             if config.debug_bubbles {
                 let _ = app.emit("llm_debug", "LLM final request: tools disabled after max rounds");
             }
-            let result = voice::chat_streaming(&config, &all_msgs, &[], None, &sentence_tx)
+            let result = voice::chat_streaming(&app, &config, &all_msgs, &[], None, &sentence_tx)
                 .await
                 .map_err(|e| format!("LLM failed: {}", e))?;
 
@@ -1110,6 +1193,7 @@ pub fn run() {
             recording_sample_rate: Mutex::new(44100),
             is_recording: Mutex::new(false),
             pipeline_cancel: Mutex::new(CancellationToken::new()),
+            ctx_max: Mutex::new(None),
         })
         .setup(|app| {
             // Build tray menu
@@ -1183,6 +1267,9 @@ pub fn run() {
                 .hotkey
                 .clone();
             register_ptt_shortcut(app.handle(), &initial_hotkey)?;
+
+            // Probe the LLM backend for max context window (non-blocking).
+            refresh_ctx_max(app.handle());
 
 // Hide dock icon on macOS
             #[cfg(target_os = "macos")]

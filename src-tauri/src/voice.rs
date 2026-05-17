@@ -3,8 +3,26 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::Manager;
+use std::time::Instant;
+use tauri::{Emitter, Manager};
 use tokio::sync::mpsc;
+
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct LlmStats {
+    pub ttft_ms: Option<u64>,
+    pub tokens_per_sec: Option<f64>,
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub ctx_max: Option<u32>,
+}
+
+fn emit_llm_stats(app: &tauri::AppHandle, mut stats: LlmStats) {
+    if stats.ctx_max.is_none() {
+        let state = app.state::<AppState>();
+        stats.ctx_max = *state.ctx_max.lock().unwrap();
+    }
+    let _ = app.emit("llm_stats", stats);
+}
 
 // ── Audio Recording (cpal) ──
 
@@ -246,6 +264,13 @@ impl OllamaToolCall {
 struct OllamaStreamChunk {
     message: Option<OllamaResponseMessage>,
     done: Option<bool>,
+    #[serde(default)]
+    prompt_eval_count: Option<u32>,
+    #[serde(default)]
+    eval_count: Option<u32>,
+    /// Nanoseconds spent generating completion tokens.
+    #[serde(default)]
+    eval_duration: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -272,6 +297,21 @@ struct OpenAiChatRequest {
     tool_choice: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     chat_template_kwargs: Option<serde_json::Value>,
+    /// Ask the server to send a final usage chunk in the stream.
+    stream_options: OpenAiStreamOptions,
+}
+
+#[derive(Serialize)]
+struct OpenAiStreamOptions {
+    include_usage: bool,
+}
+
+#[derive(Deserialize, Default)]
+struct OpenAiUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+    #[serde(default)]
+    completion_tokens: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -290,7 +330,10 @@ struct OpenAiToolFunctionOut {
 
 #[derive(Deserialize)]
 struct OpenAiStreamChunk {
+    #[serde(default)]
     choices: Vec<OpenAiStreamChoice>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
 }
 
 #[derive(Deserialize)]
@@ -508,6 +551,7 @@ pub enum StreamResult {
 /// - If the model returns tool_calls → returns `StreamResult::ToolCalls` (nothing sent via channel).
 /// - Also handles XML-style tool calls from models that don't use native format.
 pub async fn chat_streaming(
+    app: &tauri::AppHandle,
     config: &VoiceConfig,
     messages: &[ChatMessage],
     tools: &[serde_json::Value],
@@ -515,18 +559,22 @@ pub async fn chat_streaming(
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
     if config.llm_provider == "ollama" {
-        return chat_streaming_ollama(config, messages, tools, sentence_tx).await;
+        return chat_streaming_ollama(app, config, messages, tools, sentence_tx).await;
     }
 
-    chat_streaming_openai(config, messages, tools, forced_tool, sentence_tx).await
+    chat_streaming_openai(app, config, messages, tools, forced_tool, sentence_tx).await
 }
 
 async fn chat_streaming_ollama(
+    app: &tauri::AppHandle,
     config: &VoiceConfig,
     messages: &[ChatMessage],
     tools: &[serde_json::Value],
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
+    let req_start = Instant::now();
+    let mut first_token_at: Option<Instant> = None;
+    let mut stats = LlmStats::default();
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
@@ -607,6 +655,10 @@ async fn chat_streaming_ollama(
 
                     // Collect content tokens
                     if !msg.content.is_empty() {
+                        if first_token_at.is_none() {
+                            first_token_at = Some(Instant::now());
+                            stats.ttft_ms = Some(req_start.elapsed().as_millis() as u64);
+                        }
                         full_response.push_str(&msg.content);
 
                         if xml_collecting {
@@ -670,6 +722,15 @@ async fn chat_streaming_ollama(
                 }
 
                 if stream_chunk.done.unwrap_or(false) {
+                    stats.prompt_tokens = stream_chunk.prompt_eval_count;
+                    stats.completion_tokens = stream_chunk.eval_count;
+                    if let (Some(n), Some(ns)) =
+                        (stream_chunk.eval_count, stream_chunk.eval_duration)
+                    {
+                        if ns > 0 {
+                            stats.tokens_per_sec = Some(n as f64 * 1_000_000_000.0 / ns as f64);
+                        }
+                    }
                     // Flush remaining sentence buffer (only if not collecting XML)
                     if !xml_collecting {
                         let remaining = sentence_buffer.trim().to_string();
@@ -718,6 +779,8 @@ async fn chat_streaming_ollama(
         }
     }
 
+    emit_llm_stats(app, stats);
+
     // If we got tool calls (native or XML-parsed), return them with any spoken preamble
     if !collected_tool_calls.is_empty() {
         return Ok(StreamResult::ToolCalls(
@@ -745,6 +808,7 @@ async fn chat_streaming_ollama(
 }
 
 async fn chat_streaming_openai(
+    app: &tauri::AppHandle,
     config: &VoiceConfig,
     messages: &[ChatMessage],
     tools: &[serde_json::Value],
@@ -802,6 +866,7 @@ async fn chat_streaming_openai(
             })
         }),
         chat_template_kwargs: Some(serde_json::json!({ "enable_thinking": false })),
+        stream_options: OpenAiStreamOptions { include_usage: true },
     };
 
     let resp = client
@@ -825,6 +890,10 @@ async fn chat_streaming_openai(
     let mut line_buffer = Vec::new();
     let mut tool_call_accumulators: Vec<OpenAiToolCallAccumulator> = Vec::new();
 
+    let req_start = Instant::now();
+    let mut first_token_at: Option<Instant> = None;
+    let mut stats = LlmStats::default();
+
     while let Some(chunk) = byte_stream.next().await {
         let chunk = chunk?;
         line_buffer.extend_from_slice(&chunk);
@@ -847,6 +916,15 @@ async fn chat_streaming_openai(
                 continue;
             };
 
+            if let Some(usage) = stream_chunk.usage {
+                if usage.prompt_tokens.is_some() {
+                    stats.prompt_tokens = usage.prompt_tokens;
+                }
+                if usage.completion_tokens.is_some() {
+                    stats.completion_tokens = usage.completion_tokens;
+                }
+            }
+
             for choice in stream_chunk.choices {
                 let OpenAiDelta {
                     content,
@@ -855,6 +933,10 @@ async fn chat_streaming_openai(
                 collect_openai_tool_call_deltas(&mut tool_call_accumulators, tool_calls);
 
                 if let Some(content) = content {
+                    if !content.is_empty() && first_token_at.is_none() {
+                        first_token_at = Some(Instant::now());
+                        stats.ttft_ms = Some(req_start.elapsed().as_millis() as u64);
+                    }
                     full_response.push_str(&content);
                     sentence_buffer.push_str(&content);
 
@@ -871,6 +953,14 @@ async fn chat_streaming_openai(
             }
         }
     }
+
+    if let (Some(n), Some(first)) = (stats.completion_tokens, first_token_at) {
+        let secs = first.elapsed().as_secs_f64();
+        if secs > 0.0 {
+            stats.tokens_per_sec = Some(n as f64 / secs);
+        }
+    }
+    emit_llm_stats(app, stats);
 
     if !line_buffer.is_empty() {
         let line_str = String::from_utf8_lossy(&line_buffer);

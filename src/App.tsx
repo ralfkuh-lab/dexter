@@ -51,6 +51,15 @@ interface VoiceConfig {
   sandbox: SandboxConfig;
   window: WindowConfig;
   hotkey: string;
+  show_stats: boolean;
+}
+
+interface LlmStats {
+  ttft_ms: number | null;
+  tokens_per_sec: number | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  ctx_max: number | null;
 }
 
 interface AudioChunk {
@@ -144,6 +153,9 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
       <FieldGroup title="Debug">
         <Field label="Debug Bubbles">
           <Toggle on={config.debug_bubbles} onToggle={() => setConfig({ ...config, debug_bubbles: !config.debug_bubbles })} />
+        </Field>
+        <Field label="Stats bar (ctx, TTFT, tok/s)">
+          <Toggle on={config.show_stats} onToggle={() => setConfig({ ...config, show_stats: !config.show_stats })} />
         </Field>
       </FieldGroup>
 
@@ -566,6 +578,33 @@ function Settings() {
   );
 }
 
+/* ─────────────────────────── Stats Bar ─────────────────────────── */
+
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function StatsBar({ stats }: { stats: LlmStats }) {
+  const parts: string[] = [];
+  if (stats.prompt_tokens != null) {
+    if (stats.ctx_max != null) {
+      const pct = Math.round((stats.prompt_tokens / stats.ctx_max) * 100);
+      parts.push(`ctx ${formatTokens(stats.prompt_tokens)}/${formatTokens(stats.ctx_max)} (${pct}%)`);
+    } else {
+      parts.push(`ctx ${formatTokens(stats.prompt_tokens)}`);
+    }
+  }
+  if (stats.ttft_ms != null) parts.push(`TTFT ${stats.ttft_ms}ms`);
+  if (stats.tokens_per_sec != null) parts.push(`${stats.tokens_per_sec.toFixed(1)} tok/s`);
+  if (parts.length === 0) return null;
+  return (
+    <div className="self-center text-[10px] text-white/35 font-mono pb-1 select-none">
+      {parts.join(" · ")}
+    </div>
+  );
+}
+
 /* ─────────────────────────── Orb View ─────────────────────────── */
 
 function Orb() {
@@ -573,17 +612,26 @@ function Orb() {
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
   const [mouseRecording, setMouseRecording] = useState(false);
   const [hotkey, setHotkey] = useState<string>("F9");
+  const [showStats, setShowStats] = useState<boolean>(true);
+  const [stats, setStats] = useState<LlmStats | null>(null);
   const bubblesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const load = () => {
       invoke<VoiceConfig>("get_config")
-        .then((c) => setHotkey(c.hotkey || "F9"))
+        .then((c) => {
+          setHotkey(c.hotkey || "F9");
+          setShowStats(c.show_stats !== false);
+        })
         .catch(() => {});
     };
     load();
-    const un = listen("config_changed", load);
-    return () => { un.then((fn) => fn()); };
+    const unCfg = listen("config_changed", load);
+    const unStats = listen<LlmStats>("llm_stats", (e) => setStats(e.payload));
+    return () => {
+      unCfg.then((fn) => fn());
+      unStats.then((fn) => fn());
+    };
   }, []);
 
   const audioQueueRef = useRef<{ index: number; url: string }[]>([]);
@@ -792,6 +840,8 @@ function Orb() {
         )}
         <div ref={bubblesEndRef} />
       </div>
+
+      {showStats && stats && <StatsBar stats={stats} />}
 
       {/* Orb */}
       <div className="flex justify-center pb-5 pt-2 shrink-0">
