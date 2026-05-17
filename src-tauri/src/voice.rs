@@ -2,15 +2,17 @@ use crate::{AppState, ChatMessage, VoiceConfig};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tauri::Manager;
 use tokio::sync::mpsc;
-use std::collections::HashMap;
 
 // ── Audio Recording (cpal) ──
 
 /// Record audio on the current thread until `is_recording` is set to false.
 /// Writes samples directly into AppState's shared buffer.
-pub fn record_audio(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub fn record_audio(
+    app: &tauri::AppHandle,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -36,13 +38,21 @@ pub fn record_audio(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     let state = app_ref.state::<AppState>();
                     if channels <= 1 {
-                        state.recorded_samples.lock().unwrap().extend_from_slice(data);
+                        state
+                            .recorded_samples
+                            .lock()
+                            .unwrap()
+                            .extend_from_slice(data);
                     } else {
                         let mono: Vec<f32> = data
                             .chunks(channels)
                             .map(|frame| frame.iter().copied().sum::<f32>() / frame.len() as f32)
                             .collect();
-                        state.recorded_samples.lock().unwrap().extend_from_slice(&mono);
+                        state
+                            .recorded_samples
+                            .lock()
+                            .unwrap()
+                            .extend_from_slice(&mono);
                     }
                 },
                 |err| eprintln!("Audio stream error: {}", err),
@@ -59,12 +69,17 @@ pub fn record_audio(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
                     } else {
                         data.chunks(channels)
                             .map(|frame| {
-                                frame.iter().map(|&s| s as f32 / 32768.0).sum::<f32>() / frame.len() as f32
+                                frame.iter().map(|&s| s as f32 / 32768.0).sum::<f32>()
+                                    / frame.len() as f32
                             })
                             .collect()
                     };
                     let state = app_ref.state::<AppState>();
-                    state.recorded_samples.lock().unwrap().extend_from_slice(&floats);
+                    state
+                        .recorded_samples
+                        .lock()
+                        .unwrap()
+                        .extend_from_slice(&floats);
                 },
                 |err| eprintln!("Audio stream error: {}", err),
                 None,
@@ -172,6 +187,8 @@ struct OllamaMessage {
 /// Serializable tool call (for sending back to Ollama in assistant messages).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OllamaToolCallOut {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub id: Option<String>,
     pub function: OllamaToolFunctionOut,
 }
 
@@ -200,6 +217,8 @@ pub struct OllamaResponseMessage {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct OllamaToolCall {
+    #[serde(default)]
+    pub id: Option<String>,
     pub function: OllamaToolFunction,
 }
 
@@ -213,6 +232,7 @@ impl OllamaToolCall {
     /// Convert deserialized tool call to serializable form for echoing back.
     pub fn to_out(&self) -> OllamaToolCallOut {
         OllamaToolCallOut {
+            id: self.id.clone(),
             function: OllamaToolFunctionOut {
                 name: self.function.name.clone(),
                 arguments: self.function.arguments.clone(),
@@ -231,7 +251,12 @@ struct OllamaStreamChunk {
 #[derive(Serialize)]
 struct OpenAiMessage {
     role: String,
-    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OpenAiToolCallOut>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -242,7 +267,25 @@ struct OpenAiChatRequest {
     max_tokens: u32,
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     chat_template_kwargs: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct OpenAiToolCallOut {
+    id: String,
+    #[serde(rename = "type")]
+    kind: String,
+    function: OpenAiToolFunctionOut,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct OpenAiToolFunctionOut {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Deserialize)]
@@ -258,6 +301,34 @@ struct OpenAiStreamChoice {
 #[derive(Deserialize)]
 struct OpenAiDelta {
     content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<OpenAiToolCallDelta>>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiToolCallDelta {
+    index: Option<usize>,
+    id: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    function: Option<OpenAiToolFunctionDelta>,
+    // llama.cpp has emitted this flatter shape in some tool-call handlers.
+    name: Option<String>,
+    arguments: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiToolFunctionDelta {
+    name: Option<String>,
+    arguments: Option<String>,
+}
+
+#[derive(Default)]
+struct OpenAiToolCallAccumulator {
+    id: Option<String>,
+    kind: Option<String>,
+    name: String,
+    arguments: String,
 }
 
 /// Build tool definitions based on enabled tools in config.
@@ -440,13 +511,14 @@ pub async fn chat_streaming(
     config: &VoiceConfig,
     messages: &[ChatMessage],
     tools: &[serde_json::Value],
+    forced_tool: Option<&str>,
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
     if config.llm_provider == "ollama" {
         return chat_streaming_ollama(config, messages, tools, sentence_tx).await;
     }
 
-    chat_streaming_openai(config, messages, sentence_tx).await
+    chat_streaming_openai(config, messages, tools, forced_tool, sentence_tx).await
 }
 
 async fn chat_streaming_ollama(
@@ -461,7 +533,7 @@ async fn chat_streaming_ollama(
 
     let mut ollama_messages = vec![OllamaMessage {
         role: "system".to_string(),
-        content: config.system_prompt.clone(),
+        content: config.effective_system_prompt(),
         tool_calls: None,
     }];
 
@@ -477,7 +549,11 @@ async fn chat_streaming_ollama(
         model: config.llm_model.clone(),
         messages: ollama_messages,
         stream: true,
-        tools: if tools.is_empty() { None } else { Some(tools.to_vec()) },
+        tools: if tools.is_empty() {
+            None
+        } else {
+            Some(tools.to_vec())
+        },
     };
 
     let resp = client
@@ -579,7 +655,8 @@ async fn chat_streaming_ollama(
                             } else {
                                 // Normal streaming — send complete sentences as they form
                                 while let Some(split_pos) = find_sentence_end(&sentence_buffer) {
-                                    let sentence: String = sentence_buffer.drain(..=split_pos).collect();
+                                    let sentence: String =
+                                        sentence_buffer.drain(..=split_pos).collect();
                                     let sentence = sentence.trim().to_string();
                                     if !sentence.is_empty() {
                                         spoken_text.push_str(&sentence);
@@ -643,7 +720,11 @@ async fn chat_streaming_ollama(
 
     // If we got tool calls (native or XML-parsed), return them with any spoken preamble
     if !collected_tool_calls.is_empty() {
-        return Ok(StreamResult::ToolCalls(collected_tool_calls, spoken_text.trim().to_string(), false));
+        return Ok(StreamResult::ToolCalls(
+            collected_tool_calls,
+            spoken_text.trim().to_string(),
+            false,
+        ));
     }
 
     // Last-resort fallback: check full response for XML tool calls we might have missed
@@ -651,7 +732,11 @@ async fn chat_streaming_ollama(
     if has_tools && !full_response.is_empty() {
         if let Some(parsed) = parse_xml_tool_calls(&full_response) {
             if !parsed.is_empty() {
-                return Ok(StreamResult::ToolCalls(parsed, spoken_text.trim().to_string(), true));
+                return Ok(StreamResult::ToolCalls(
+                    parsed,
+                    spoken_text.trim().to_string(),
+                    true,
+                ));
             }
         }
     }
@@ -662,6 +747,8 @@ async fn chat_streaming_ollama(
 async fn chat_streaming_openai(
     config: &VoiceConfig,
     messages: &[ChatMessage],
+    tools: &[serde_json::Value],
+    forced_tool: Option<&str>,
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::builder()
@@ -670,16 +757,31 @@ async fn chat_streaming_openai(
 
     let mut openai_messages = vec![OpenAiMessage {
         role: "system".to_string(),
-        content: config.system_prompt.clone(),
+        content: Some(crate::core_system_prompt().to_string()),
+        tool_calls: None,
+        tool_call_id: None,
     }];
 
+    let user_prompt = config.system_prompt.trim();
+    if !user_prompt.is_empty() {
+        openai_messages.push(OpenAiMessage {
+            role: "developer".to_string(),
+            content: Some(user_prompt.to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        });
+    }
+
     for msg in messages {
-        if msg.role != "tool" {
-            openai_messages.push(OpenAiMessage {
-                role: msg.role.clone(),
-                content: msg.content.clone(),
-            });
-        }
+        openai_messages.push(OpenAiMessage {
+            role: msg.role.clone(),
+            content: Some(msg.content.clone()),
+            tool_calls: msg
+                .tool_calls
+                .as_ref()
+                .map(|tool_calls| to_openai_tool_calls(tool_calls)),
+            tool_call_id: msg.tool_call_id.clone(),
+        });
     }
 
     let request = OpenAiChatRequest {
@@ -688,6 +790,17 @@ async fn chat_streaming_openai(
         stream: true,
         max_tokens: 512,
         temperature: 0.6,
+        tools: if tools.is_empty() {
+            None
+        } else {
+            Some(tools.to_vec())
+        },
+        tool_choice: forced_tool.map(|name| {
+            serde_json::json!({
+                "type": "function",
+                "function": { "name": name }
+            })
+        }),
         chat_template_kwargs: Some(serde_json::json!({ "enable_thinking": false })),
     };
 
@@ -707,8 +820,10 @@ async fn chat_streaming_openai(
 
     let mut full_response = String::new();
     let mut sentence_buffer = String::new();
+    let mut spoken_text = String::new();
     let mut byte_stream = resp.bytes_stream();
     let mut line_buffer = Vec::new();
+    let mut tool_call_accumulators: Vec<OpenAiToolCallAccumulator> = Vec::new();
 
     while let Some(chunk) = byte_stream.next().await {
         let chunk = chunk?;
@@ -733,7 +848,13 @@ async fn chat_streaming_openai(
             };
 
             for choice in stream_chunk.choices {
-                if let Some(content) = choice.delta.content {
+                let OpenAiDelta {
+                    content,
+                    tool_calls,
+                } = choice.delta;
+                collect_openai_tool_call_deltas(&mut tool_call_accumulators, tool_calls);
+
+                if let Some(content) = content {
                     full_response.push_str(&content);
                     sentence_buffer.push_str(&content);
 
@@ -741,6 +862,8 @@ async fn chat_streaming_openai(
                         let sentence: String = sentence_buffer.drain(..=split_pos).collect();
                         let sentence = sentence.trim().to_string();
                         if !sentence.is_empty() {
+                            spoken_text.push_str(&sentence);
+                            spoken_text.push(' ');
                             let _ = sentence_tx.send(sentence).await;
                         }
                     }
@@ -762,7 +885,13 @@ async fn chat_streaming_openai(
             }
             if let Ok(stream_chunk) = serde_json::from_str::<OpenAiStreamChunk>(data) {
                 for choice in stream_chunk.choices {
-                    if let Some(content) = choice.delta.content {
+                    let OpenAiDelta {
+                        content,
+                        tool_calls,
+                    } = choice.delta;
+                    collect_openai_tool_call_deltas(&mut tool_call_accumulators, tool_calls);
+
+                    if let Some(content) = content {
                         full_response.push_str(&content);
                         sentence_buffer.push_str(&content);
                     }
@@ -771,12 +900,127 @@ async fn chat_streaming_openai(
         }
     }
 
+    let tool_calls = openai_tool_call_accumulators_to_ollama(tool_call_accumulators);
+    if !tool_calls.is_empty() {
+        return Ok(StreamResult::ToolCalls(
+            tool_calls,
+            spoken_text.trim().to_string(),
+            false,
+        ));
+    }
+
     let remaining = sentence_buffer.trim().to_string();
     if !remaining.is_empty() {
         let _ = sentence_tx.send(remaining).await;
     }
 
     Ok(StreamResult::Content(full_response.trim().to_string()))
+}
+
+fn to_openai_tool_calls(tool_calls: &[OllamaToolCallOut]) -> Vec<OpenAiToolCallOut> {
+    tool_calls
+        .iter()
+        .enumerate()
+        .map(|(index, tool_call)| OpenAiToolCallOut {
+            id: tool_call
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("call_{}", index)),
+            kind: "function".to_string(),
+            function: OpenAiToolFunctionOut {
+                name: tool_call.function.name.clone(),
+                arguments: serde_json::to_string(&tool_call.function.arguments)
+                    .unwrap_or_else(|_| "{}".to_string()),
+            },
+        })
+        .collect()
+}
+
+fn collect_openai_tool_call_deltas(
+    accumulators: &mut Vec<OpenAiToolCallAccumulator>,
+    deltas: Option<Vec<OpenAiToolCallDelta>>,
+) {
+    let Some(deltas) = deltas else {
+        return;
+    };
+
+    for (fallback_index, delta) in deltas.into_iter().enumerate() {
+        let index = delta.index.unwrap_or(fallback_index);
+        while accumulators.len() <= index {
+            accumulators.push(OpenAiToolCallAccumulator::default());
+        }
+
+        let acc = &mut accumulators[index];
+        if let Some(id) = delta.id {
+            acc.id = Some(id);
+        }
+        if let Some(kind) = delta.kind {
+            acc.kind = Some(kind);
+        }
+
+        if let Some(function) = delta.function {
+            if let Some(name) = function.name {
+                acc.name.push_str(&name);
+            }
+            if let Some(arguments) = function.arguments {
+                acc.arguments.push_str(&arguments);
+            }
+        }
+
+        if let Some(name) = delta.name {
+            acc.name.push_str(&name);
+        }
+        if let Some(arguments) = delta.arguments {
+            acc.arguments.push_str(&arguments);
+        }
+    }
+}
+
+fn openai_tool_call_accumulators_to_ollama(
+    accumulators: Vec<OpenAiToolCallAccumulator>,
+) -> Vec<OllamaToolCall> {
+    accumulators
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, acc)| {
+            let name = acc.name.trim().to_string();
+            if name.is_empty() {
+                return None;
+            }
+
+            Some(OllamaToolCall {
+                id: Some(acc.id.unwrap_or_else(|| format!("call_{}", index))),
+                function: OllamaToolFunction {
+                    name,
+                    arguments: parse_openai_tool_arguments(&acc.arguments),
+                },
+            })
+        })
+        .collect()
+}
+
+fn parse_openai_tool_arguments(arguments: &str) -> HashMap<String, serde_json::Value> {
+    let arguments = arguments.trim();
+    if arguments.is_empty() {
+        return HashMap::new();
+    }
+
+    match serde_json::from_str::<serde_json::Value>(arguments) {
+        Ok(serde_json::Value::Object(map)) => map.into_iter().collect(),
+        Ok(value) => {
+            let mut map = HashMap::new();
+            map.insert("value".to_string(), value);
+            map
+        }
+        Err(_) => {
+            let mut map = HashMap::new();
+            map.insert(
+                "raw".to_string(),
+                serde_json::Value::String(arguments.to_string()),
+            );
+            map
+        }
+    }
 }
 
 fn trim_base_url(url: &str) -> &str {
@@ -798,7 +1042,8 @@ fn openai_chat_completions_url(base_url: &str) -> String {
 fn parse_xml_tool_calls(content: &str) -> Option<Vec<OllamaToolCall>> {
     let re_block = regex::Regex::new(r"(?s)<(?:\w+:)?tool_call>(.*?)</(?:\w+:)?tool_call>").ok()?;
     let re_invoke = regex::Regex::new(r#"(?s)<invoke\s+name="([^"]+)">(.*?)</invoke>"#).ok()?;
-    let re_param = regex::Regex::new(r#"(?s)<parameter\s+name="([^"]+)">(.*?)</parameter>"#).ok()?;
+    let re_param =
+        regex::Regex::new(r#"(?s)<parameter\s+name="([^"]+)">(.*?)</parameter>"#).ok()?;
 
     let mut calls = Vec::new();
 
@@ -818,6 +1063,7 @@ fn parse_xml_tool_calls(content: &str) -> Option<Vec<OllamaToolCall>> {
             }
 
             calls.push(OllamaToolCall {
+                id: None,
                 function: OllamaToolFunction {
                     name: func_name,
                     arguments,
@@ -826,7 +1072,11 @@ fn parse_xml_tool_calls(content: &str) -> Option<Vec<OllamaToolCall>> {
         }
     }
 
-    if calls.is_empty() { None } else { Some(calls) }
+    if calls.is_empty() {
+        None
+    } else {
+        Some(calls)
+    }
 }
 
 /// Find the end of a sentence in the buffer.
@@ -875,7 +1125,10 @@ pub async fn synthesize(
     };
 
     let resp = client
-        .post(format!("{}/v1/audio/speech", trim_base_url(&config.tts_url)))
+        .post(format!(
+            "{}/v1/audio/speech",
+            trim_base_url(&config.tts_url)
+        ))
         .json(&request)
         .send()
         .await?;

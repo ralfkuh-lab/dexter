@@ -33,6 +33,9 @@ pub struct ChatMessage {
     /// Preserved tool_calls from assistant messages.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     tool_calls: Option<Vec<voice::OllamaToolCallOut>>,
+    /// OpenAI-compatible tool result messages must reference the call they answer.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    tool_call_id: Option<String>,
 }
 
 pub struct AppState {
@@ -111,6 +114,14 @@ fn default_tts_voice() -> String {
     "de_DE-thorsten-medium".to_string()
 }
 
+pub fn core_system_prompt() -> &'static str {
+    "You are a desktop voice assistant. Answer in the user's preferred language. Keep answers brief. Use available tools for current, local, or computer-specific information. If the user asks for date or time, use get_current_time. Do not claim you checked something unless you called the matching tool."
+}
+
+fn default_user_prompt() -> String {
+    "Sprich grundsätzlich Deutsch, außer der Nutzer bittet ausdrücklich um eine andere Sprache. Halte Antworten kurz und gesprächig. Nutze keine Markdown-Formatierung, keine Codeblöcke und keine Aufzählungen.".to_string()
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VoiceConfig {
     #[serde(default = "default_whisper_server_url")]
@@ -129,6 +140,9 @@ pub struct VoiceConfig {
     pub tts_url: String,
     #[serde(default = "default_tts_voice", alias = "chatterbox_voice")]
     pub tts_voice: String,
+    #[serde(default)]
+    pub debug_bubbles: bool,
+    #[serde(default = "default_user_prompt")]
     pub system_prompt: String,
     #[serde(default)]
     pub tools: ToolsConfig,
@@ -147,7 +161,8 @@ impl Default for VoiceConfig {
             vision_model: String::new(),
             tts_url: default_tts_url(),
             tts_voice: default_tts_voice(),
-            system_prompt: "Du bist ein Sprachassistent, der auf dem Desktop des Nutzers läuft. Die Unterhaltung findet ausschließlich über Sprache statt — der Nutzer spricht ins Mikrofon, seine Worte werden via Whisper (STT) in Text umgewandelt, an dich geschickt, und deine Antwort wird via lokaler TTS-Engine wieder in Sprache umgewandelt und über die Lautsprecher abgespielt. Du kannst ihn hören und er kann dich hören — behandle das wie ein natürliches Gespräch. Wenn er fragt „kannst du mich hören\" ist die Antwort ja.\n\nSprich grundsätzlich Deutsch. Wechsle nur dann in eine andere Sprache, wenn der Nutzer dich ausdrücklich darum bittet. Auch wenn der Nutzer einzelne englische Wörter oder Fachbegriffe einstreut, antwortest du weiterhin auf Deutsch.\n\nHalte Antworten kurz und gesprächig — maximal zwei bis drei Sätze. Kein Markdown, keine Codeblöcke, keine Aufzählungen, keine Nummerierungen, keine Sonderformatierung. Schreib genau so, wie du es laut aussprechen würdest. Vermeide Doppelpunkte, weil sie in der Sprachausgabe unnatürliche Pausen erzeugen. Vermeide außerdem Abkürzungen wie „z.B.\" oder „bzw.\" — schreib sie aus („zum Beispiel\", „beziehungsweise\"), sonst stolpert die Sprachausgabe.\n\nWenn du ein Tool benutzen willst, sag IMMER vorher in einem kurzen natürlichen Satz, was du jetzt machst. Zum Beispiel — „Ich schau mal kurz auf deinen Bildschirm\" vor einem Screenshot, „Ich such das mal im Netz\" vor einem Web-Fetch, „Moment, ich check die Uhrzeit\" vor get_current_time, „Sekunde, ich führ das aus\" vor einem Shell-Befehl. So hört der Nutzer, was passiert, statt in der Stille zu warten.".to_string(),
+            debug_bubbles: false,
+            system_prompt: default_user_prompt(),
             tools: ToolsConfig::default(),
             sandbox: sandbox::SandboxConfig::default(),
         }
@@ -155,6 +170,19 @@ impl Default for VoiceConfig {
 }
 
 impl VoiceConfig {
+    pub fn effective_system_prompt(&self) -> String {
+        let user_prompt = self.system_prompt.trim();
+        if user_prompt.is_empty() {
+            core_system_prompt().to_string()
+        } else {
+            format!(
+                "{}\n\nEditable user prompt:\n{}",
+                core_system_prompt(),
+                user_prompt
+            )
+        }
+    }
+
     fn config_path() -> std::path::PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
@@ -188,6 +216,12 @@ impl VoiceConfig {
 #[tauri::command]
 fn get_config(state: tauri::State<AppState>) -> VoiceConfig {
     state.config.lock().unwrap().clone()
+}
+
+#[tauri::command]
+#[allow(dead_code)]
+fn get_core_system_prompt() -> String {
+    core_system_prompt().to_string()
 }
 
 #[tauri::command]
@@ -257,11 +291,7 @@ fn reveal_main_window(app: &tauri::AppHandle, reload: bool) {
 // ── RAG Commands ──
 
 #[tauri::command]
-async fn ingest_text(
-    app: tauri::AppHandle,
-    source: String,
-    text: String,
-) -> Result<usize, String> {
+async fn ingest_text(app: tauri::AppHandle, source: String, text: String) -> Result<usize, String> {
     let state = app.state::<AppState>();
     let config = state.config.lock().unwrap().clone();
     state
@@ -355,7 +385,15 @@ fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
     let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = process_pipeline(app_handle.clone(), samples, sample_rate, config, cancel_token).await {
+        if let Err(e) = process_pipeline(
+            app_handle.clone(),
+            samples,
+            sample_rate,
+            config,
+            cancel_token,
+        )
+        .await
+        {
             if e != "interrupted" {
                 eprintln!("Pipeline error: {}", e);
                 let _ = app_handle.emit(
@@ -389,11 +427,14 @@ async fn process_pipeline(
     )
     .map_err(|e: tauri::Error| e.to_string())?;
 
-    let transcript = voice::transcribe_audio_http(&config.whisper_server_url, &samples, sample_rate)
-        .await
-        .map_err(|e| format!("Transcription failed: {}", e))?;
+    let transcript =
+        voice::transcribe_audio_http(&config.whisper_server_url, &samples, sample_rate)
+            .await
+            .map_err(|e| format!("Transcription failed: {}", e))?;
 
-    if cancel.is_cancelled() { return Err("interrupted".to_string()); }
+    if cancel.is_cancelled() {
+        return Err("interrupted".to_string());
+    }
 
     if transcript.trim().is_empty() {
         app.emit(
@@ -418,11 +459,16 @@ async fn process_pipeline(
 
     // Add user message
     {
-        app.state::<AppState>().messages.lock().unwrap().push(ChatMessage {
-            role: "user".to_string(),
-            content: transcript.clone(),
-            tool_calls: None,
-        });
+        app.state::<AppState>()
+            .messages
+            .lock()
+            .unwrap()
+            .push(ChatMessage {
+                role: "user".to_string(),
+                content: transcript.clone(),
+                tool_calls: None,
+                tool_call_id: None,
+            });
     }
 
     // Stage 2: LLM with tool calling → streaming TTS
@@ -437,11 +483,8 @@ async fn process_pipeline(
 
     let all_messages = app.state::<AppState>().messages.lock().unwrap().clone();
 
-    let tools = if config.llm_provider == "ollama" {
-        voice::build_tools(&config.tools)
-    } else {
-        Vec::new()
-    };
+    let tools = voice::build_tools(&config.tools);
+    let forced_tool = forced_tool_for_transcript(&transcript, &config.tools);
     let max_tool_rounds = 5;
 
     // Single streaming loop: stream with tools → if model returns tool calls,
@@ -462,23 +505,65 @@ async fn process_pipeline(
 
         tokio::spawn(async move {
             let mut all_msgs = all_messages;
+            let mut forced_tool_next = forced_tool;
 
             for _round in 0..max_tool_rounds {
-                if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+                if cancel_llm.is_cancelled() {
+                    return Err("interrupted".to_string());
+                }
 
+                if config.debug_bubbles {
+                    let _ = app.emit(
+                        "llm_debug",
+                        format!(
+                            "LLM request: provider={}, model={}, messages={}, tools={}, forced_tool={}",
+                            config.llm_provider,
+                            config.llm_model,
+                            all_msgs.len(),
+                            tools.len(),
+                            forced_tool_next.as_deref().unwrap_or("none")
+                        ),
+                    );
+                }
+
+                let forced_tool_this_round = forced_tool_next.take();
                 let result = tokio::select! {
                     _ = cancel_llm.cancelled() => { return Err("interrupted".to_string()); }
-                    r = voice::chat_streaming(&config, &all_msgs, &tools, &sentence_tx) => {
+                    r = voice::chat_streaming(&config, &all_msgs, &tools, forced_tool_this_round.as_deref(), &sentence_tx) => {
                         r.map_err(|e| format!("LLM failed: {}", e))?
                     }
                 };
 
                 match result {
                     voice::StreamResult::Content(text) => {
+                        if config.debug_bubbles {
+                            let _ = app.emit(
+                                "llm_debug",
+                                format!("LLM response: content only, {} chars", text.chars().count()),
+                            );
+                        }
                         return Ok::<String, String>(text);
                     }
                     voice::StreamResult::ToolCalls(tool_calls, preamble, xml_parsed) => {
-                        if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+                        if cancel_llm.is_cancelled() {
+                            return Err("interrupted".to_string());
+                        }
+                        let names = tool_calls
+                            .iter()
+                            .map(|tc| tc.function.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        if config.debug_bubbles {
+                            let _ = app.emit(
+                                "llm_debug",
+                                format!(
+                                    "LLM response: tool_calls=[{}], preamble_chars={}, xml_parsed={}",
+                                    names,
+                                    preamble.chars().count(),
+                                    xml_parsed
+                                ),
+                            );
+                        }
 
                         if xml_parsed {
                             // XML-parsed tool calls: model emitted XML as text.
@@ -490,12 +575,15 @@ async fn process_pipeline(
                                     role: "assistant".to_string(),
                                     content: preamble,
                                     tool_calls: None,
+                                    tool_call_id: None,
                                 });
                             }
 
                             let mut tool_results = String::new();
                             for tool_call in &tool_calls {
-                                if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+                                if cancel_llm.is_cancelled() {
+                                    return Err("interrupted".to_string());
+                                }
 
                                 let _ = app.emit(
                                     "processing",
@@ -519,19 +607,23 @@ async fn process_pipeline(
                                     tool_results.trim()
                                 ),
                                 tool_calls: None,
+                                tool_call_id: None,
                             });
                         } else {
-                            // Native Ollama tool calls: use proper tool protocol
+                            // Native tool calls: preserve the assistant call and answer each call with a tool message.
                             let tool_calls_out: Vec<voice::OllamaToolCallOut> =
                                 tool_calls.iter().map(|tc| tc.to_out()).collect();
                             all_msgs.push(ChatMessage {
                                 role: "assistant".to_string(),
                                 content: preamble,
                                 tool_calls: Some(tool_calls_out),
+                                tool_call_id: None,
                             });
 
                             for tool_call in &tool_calls {
-                                if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+                                if cancel_llm.is_cancelled() {
+                                    return Err("interrupted".to_string());
+                                }
 
                                 let _ = app.emit(
                                     "processing",
@@ -547,6 +639,7 @@ async fn process_pipeline(
                                     role: "tool".to_string(),
                                     content: result_text,
                                     tool_calls: None,
+                                    tool_call_id: tool_call.id.clone(),
                                 });
                             }
                         }
@@ -563,15 +656,22 @@ async fn process_pipeline(
             }
 
             // Hit max rounds — do one final stream without tools
-            if cancel_llm.is_cancelled() { return Err("interrupted".to_string()); }
+            if cancel_llm.is_cancelled() {
+                return Err("interrupted".to_string());
+            }
 
-            let result = voice::chat_streaming(&config, &all_msgs, &[], &sentence_tx)
+            if config.debug_bubbles {
+                let _ = app.emit("llm_debug", "LLM final request: tools disabled after max rounds");
+            }
+            let result = voice::chat_streaming(&config, &all_msgs, &[], None, &sentence_tx)
                 .await
                 .map_err(|e| format!("LLM failed: {}", e))?;
 
             match result {
                 voice::StreamResult::Content(text) => Ok(text),
-                voice::StreamResult::ToolCalls(_, _, _) => Err("Model returned tool calls after max rounds".to_string()),
+                voice::StreamResult::ToolCalls(_, _, _) => {
+                    Err("Model returned tool calls after max rounds".to_string())
+                }
             }
         })
     };
@@ -582,7 +682,9 @@ async fn process_pipeline(
     // Process sentences as they arrive from the stream → TTS → audio
     // Check cancellation between each TTS synthesis
     while let Some(sentence) = sentence_rx.recv().await {
-        if cancel.is_cancelled() { break; }
+        if cancel.is_cancelled() {
+            break;
+        }
 
         full_text.push_str(&sentence);
         full_text.push(' ');
@@ -604,11 +706,16 @@ async fn process_pipeline(
 
         match tts_result {
             Ok(audio_base64) => {
-                if cancel.is_cancelled() { break; }
-                app.emit("play_audio_chunk", AudioChunk {
-                    index: sentence_index,
-                    audio: audio_base64,
-                })
+                if cancel.is_cancelled() {
+                    break;
+                }
+                app.emit(
+                    "play_audio_chunk",
+                    AudioChunk {
+                        index: sentence_index,
+                        audio: audio_base64,
+                    },
+                )
                 .map_err(|e: tauri::Error| e.to_string())?;
                 sentence_index += 1;
             }
@@ -632,13 +739,64 @@ async fn process_pipeline(
         .map_err(|e: tauri::Error| e.to_string())?;
 
     // Add assistant message to history
-    app.state::<AppState>().messages.lock().unwrap().push(ChatMessage {
-        role: "assistant".to_string(),
-        content: full_response,
-        tool_calls: None,
-    });
+    app.state::<AppState>()
+        .messages
+        .lock()
+        .unwrap()
+        .push(ChatMessage {
+            role: "assistant".to_string(),
+            content: full_response,
+            tool_calls: None,
+            tool_call_id: None,
+        });
 
     Ok(())
+}
+
+fn forced_tool_for_transcript(transcript: &str, tools: &ToolsConfig) -> Option<String> {
+    let text = transcript.to_lowercase();
+
+    if tools.get_current_time
+        && contains_any(
+            &text,
+            &[
+                "wie spät",
+                "wieviel uhr",
+                "wie viel uhr",
+                "uhrzeit",
+                "aktuelle zeit",
+                "aktuelles datum",
+                "welches datum",
+                "welcher tag",
+                "heutiges datum",
+            ],
+        )
+    {
+        return Some("get_current_time".to_string());
+    }
+
+    if tools.read_clipboard
+        && contains_any(
+            &text,
+            &[
+                "zwischenablage",
+                "clipboard",
+                "kopiert",
+                "was habe ich kopiert",
+                "was ist im clipboard",
+                "lies clipboard",
+                "lies die zwischenablage",
+            ],
+        )
+    {
+        return Some("read_clipboard".to_string());
+    }
+
+    None
+}
+
+fn contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
 }
 
 /// Execute a single tool call and return the result text.
@@ -651,8 +809,13 @@ async fn execute_tool(
 
     match tool_call.function.name.as_str() {
         "search_knowledge" => {
-            let query = tool_call.function.arguments.get("query")
-                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let query = tool_call
+                .function
+                .arguments
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
             let results = rag_store
                 .search(&query, &config.llm_base_url, &config.embed_model, 5)
@@ -662,24 +825,44 @@ async fn execute_tool(
             if results.is_empty() {
                 "No relevant results found in the knowledge base.".to_string()
             } else {
-                results.iter().enumerate()
-                    .map(|(i, r)| format!("[{}] (source: {}, relevance: {:.2})\n{}", i + 1, r.source, r.score, r.text))
+                results
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        format!(
+                            "[{}] (source: {}, relevance: {:.2})\n{}",
+                            i + 1,
+                            r.source,
+                            r.score,
+                            r.text
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n\n")
             }
         }
         "take_screenshot" => {
-            let question = tool_call.function.arguments.get("question")
+            let question = tool_call
+                .function
+                .arguments
+                .get("question")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Describe what you see on this screen in detail.")
                 .to_string();
-            let monitor = tool_call.function.arguments.get("monitor")
-                .and_then(|v| v.as_u64()).map(|n| n as u32);
+            let monitor = tool_call
+                .function
+                .arguments
+                .get("monitor")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32);
 
-            let _ = app.emit("processing", ProcessingState {
-                stage: "thinking".to_string(),
-                text: "Looking at your screen...".to_string(),
-            });
+            let _ = app.emit(
+                "processing",
+                ProcessingState {
+                    stage: "thinking".to_string(),
+                    text: "Looking at your screen...".to_string(),
+                },
+            );
 
             match tools::take_screenshot(monitor) {
                 Ok(image_b64) => {
@@ -697,14 +880,31 @@ async fn execute_tool(
             }
         }
         "read_clipboard" => match tools::read_clipboard() {
-            Ok(text) => if text.trim().is_empty() { "The clipboard is empty.".to_string() } else { format!("Clipboard contents:\n{}", text) },
+            Ok(text) => {
+                if text.trim().is_empty() {
+                    "The clipboard is empty.".to_string()
+                } else {
+                    format!("Clipboard contents:\n{}", text)
+                }
+            }
             Err(e) => format!("Failed to read clipboard: {}", e),
         },
         "open_url" => {
-            let url = tool_call.function.arguments.get("url")
-                .and_then(|v| v.as_str()).unwrap_or("").to_string();
-            if url.is_empty() { "No URL provided.".to_string() }
-            else { match tools::open_url(&url) { Ok(msg) => msg, Err(e) => format!("Failed to open URL: {}", e) } }
+            let url = tool_call
+                .function
+                .arguments
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if url.is_empty() {
+                "No URL provided.".to_string()
+            } else {
+                match tools::open_url(&url) {
+                    Ok(msg) => msg,
+                    Err(e) => format!("Failed to open URL: {}", e),
+                }
+            }
         }
         "get_current_time" => tools::get_current_time(),
         "list_running_apps" => match tools::list_running_apps() {
@@ -712,21 +912,40 @@ async fn execute_tool(
             Err(e) => format!("Failed to list apps: {}", e),
         },
         "web_fetch" => {
-            let url = tool_call.function.arguments.get("url")
-                .and_then(|v| v.as_str()).unwrap_or("").to_string();
-            if url.is_empty() { "No URL provided.".to_string() }
-            else { match tools::web_fetch(&url).await { Ok(text) => text, Err(e) => format!("Failed to fetch {}: {}", url, e) } }
+            let url = tool_call
+                .function
+                .arguments
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if url.is_empty() {
+                "No URL provided.".to_string()
+            } else {
+                match tools::web_fetch(&url).await {
+                    Ok(text) => text,
+                    Err(e) => format!("Failed to fetch {}: {}", url, e),
+                }
+            }
         }
         "run_command" => {
-            let command = tool_call.function.arguments.get("command")
-                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let command = tool_call
+                .function
+                .arguments
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             if command.is_empty() {
                 "No command provided.".to_string()
             } else {
-                let _ = app.emit("processing", ProcessingState {
-                    stage: "thinking".to_string(),
-                    text: format!("Running: {}", command),
-                });
+                let _ = app.emit(
+                    "processing",
+                    ProcessingState {
+                        stage: "thinking".to_string(),
+                        text: format!("Running: {}", command),
+                    },
+                );
                 let audit = &app.state::<AppState>().audit_log;
                 match sandbox::execute(&command, &config.sandbox, audit) {
                     Ok(output) => output,
@@ -755,12 +974,9 @@ pub fn run() {
         })
         .setup(|app| {
             // Build tray menu
-            let show_item =
-                MenuItemBuilder::with_id("show", "Show Window").build(app)?;
-            let settings_item =
-                MenuItemBuilder::with_id("settings", "Settings").build(app)?;
-            let clear_item =
-                MenuItemBuilder::with_id("clear", "Clear Chat").build(app)?;
+            let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
+            let settings_item = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
+            let clear_item = MenuItemBuilder::with_id("clear", "Clear Chat").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
             let menu = MenuBuilder::new(app)
@@ -809,90 +1025,106 @@ pub fn run() {
                 .build(app)?;
 
             // Register global shortcut in Rust so it works when window is hidden
-            app.global_shortcut().on_shortcut("Shift+Z", |app, _shortcut, event| {
-                match event.state {
-                    ShortcutState::Pressed => {
-                        // Cancel any running pipeline first
-                        {
-                            let state = app.state::<AppState>();
-                            let mut cancel = state.pipeline_cancel.lock().unwrap();
-                            cancel.cancel(); // signal the running pipeline to stop
-                            *cancel = CancellationToken::new(); // fresh token for next pipeline
-                        }
-
-                        // Tell frontend to stop audio and reset
-                        let _ = app.emit("pipeline_interrupted", ());
-
-                        // Show window at bottom-right and start recording
-                        reveal_main_window(app, false);
-                        let _ = app.emit("hotkey_pressed", ());
-
-                        // Start recording
-                        let state = app.state::<AppState>();
-                        let is_rec = *state.is_recording.lock().unwrap();
-                        if !is_rec {
-                            state.recorded_samples.lock().unwrap().clear();
-                            *state.is_recording.lock().unwrap() = true;
-                            let app_clone = app.clone();
-                            std::thread::spawn(move || {
-                                if let Err(e) = voice::record_audio(&app_clone) {
-                                    eprintln!("Recording error: {}", e);
-                                }
-                            });
-                        }
-                    }
-                    ShortcutState::Released => {
-                        let _ = app.emit("hotkey_released", ());
-
-                        // Stop recording and process
-                        let state = app.state::<AppState>();
-                        *state.is_recording.lock().unwrap() = false;
-
-                        // Grab the current cancel token for this pipeline
-                        let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
-
-                        let app_clone = app.clone();
-                        // Small delay to let recording thread finish, then process
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-
-                            let state = app_clone.state::<AppState>();
-                            let samples = state.recorded_samples.lock().unwrap().clone();
-                            let sample_rate = *state.recording_sample_rate.lock().unwrap();
-                            let config = state.config.lock().unwrap().clone();
-
-                            if samples.is_empty() {
-                                let _ = app_clone.emit("processing", ProcessingState {
-                                    stage: "error".to_string(),
-                                    text: "No audio recorded".to_string(),
-                                });
-                                return;
+            app.global_shortcut()
+                .on_shortcut("Shift+Z", |app, _shortcut, event| {
+                    match event.state {
+                        ShortcutState::Pressed => {
+                            // Cancel any running pipeline first
+                            {
+                                let state = app.state::<AppState>();
+                                let mut cancel = state.pipeline_cancel.lock().unwrap();
+                                cancel.cancel(); // signal the running pipeline to stop
+                                *cancel = CancellationToken::new(); // fresh token for next pipeline
                             }
 
-                            tauri::async_runtime::spawn(async move {
-                                if let Err(e) = process_pipeline(app_clone.clone(), samples, sample_rate, config, cancel_token).await {
-                                    if e != "interrupted" {
-                                        eprintln!("Pipeline error: {}", e);
-                                        let _ = app_clone.emit("processing", ProcessingState {
-                                            stage: "error".to_string(),
-                                            text: e,
-                                        });
+                            // Tell frontend to stop audio and reset
+                            let _ = app.emit("pipeline_interrupted", ());
+
+                            // Show window at bottom-right and start recording
+                            reveal_main_window(app, false);
+                            let _ = app.emit("hotkey_pressed", ());
+
+                            // Start recording
+                            let state = app.state::<AppState>();
+                            let is_rec = *state.is_recording.lock().unwrap();
+                            if !is_rec {
+                                state.recorded_samples.lock().unwrap().clear();
+                                *state.is_recording.lock().unwrap() = true;
+                                let app_clone = app.clone();
+                                std::thread::spawn(move || {
+                                    if let Err(e) = voice::record_audio(&app_clone) {
+                                        eprintln!("Recording error: {}", e);
                                     }
+                                });
+                            }
+                        }
+                        ShortcutState::Released => {
+                            let _ = app.emit("hotkey_released", ());
+
+                            // Stop recording and process
+                            let state = app.state::<AppState>();
+                            *state.is_recording.lock().unwrap() = false;
+
+                            // Grab the current cancel token for this pipeline
+                            let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
+
+                            let app_clone = app.clone();
+                            // Small delay to let recording thread finish, then process
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+
+                                let state = app_clone.state::<AppState>();
+                                let samples = state.recorded_samples.lock().unwrap().clone();
+                                let sample_rate = *state.recording_sample_rate.lock().unwrap();
+                                let config = state.config.lock().unwrap().clone();
+
+                                if samples.is_empty() {
+                                    let _ = app_clone.emit(
+                                        "processing",
+                                        ProcessingState {
+                                            stage: "error".to_string(),
+                                            text: "No audio recorded".to_string(),
+                                        },
+                                    );
+                                    return;
                                 }
+
+                                tauri::async_runtime::spawn(async move {
+                                    if let Err(e) = process_pipeline(
+                                        app_clone.clone(),
+                                        samples,
+                                        sample_rate,
+                                        config,
+                                        cancel_token,
+                                    )
+                                    .await
+                                    {
+                                        if e != "interrupted" {
+                                            eprintln!("Pipeline error: {}", e);
+                                            let _ = app_clone.emit(
+                                                "processing",
+                                                ProcessingState {
+                                                    stage: "error".to_string(),
+                                                    text: e,
+                                                },
+                                            );
+                                        }
+                                    }
+                                });
                             });
-                        });
+                        }
                     }
-                }
-            })?;
+                })?;
 
             // Register Shift+X to hide/dismiss the window
-            app.global_shortcut().on_shortcut("Shift+X", |app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
+            app.global_shortcut()
+                .on_shortcut("Shift+X", |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
                     }
-                }
-            })?;
+                })?;
 
             // Hide dock icon on macOS
             #[cfg(target_os = "macos")]
@@ -908,6 +1140,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
+            get_core_system_prompt,
             set_config,
             get_messages,
             clear_messages,

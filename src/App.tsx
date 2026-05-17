@@ -37,6 +37,7 @@ interface VoiceConfig {
   vision_model: string;
   tts_url: string;
   tts_voice: string;
+  debug_bubbles: boolean;
   system_prompt: string;
   tools: ToolsConfig;
   sandbox: SandboxConfig;
@@ -48,7 +49,7 @@ interface AudioChunk {
 }
 
 interface ChatBubble {
-  role: "user" | "assistant" | "status" | "tool";
+  role: "user" | "assistant" | "status" | "tool" | "debug";
   text: string;
   id: number;
 }
@@ -100,21 +101,46 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
         </Field>
       </FieldGroup>
 
+      <FieldGroup title="Debug">
+        <Field label="Debug Bubbles">
+          <Toggle on={config.debug_bubbles} onToggle={() => setConfig({ ...config, debug_bubbles: !config.debug_bubbles })} />
+        </Field>
+      </FieldGroup>
+
     </div>
   );
 }
 
 /* ─────────────────────────── Settings: Prompt Tab ─────────────────────────── */
 
-function PromptTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: VoiceConfig) => void }) {
+function PromptTab({
+  config,
+  setConfig,
+  corePrompt,
+}: {
+  config: VoiceConfig;
+  setConfig: (c: VoiceConfig) => void;
+  corePrompt: string;
+}) {
   return (
     <div className="flex flex-col gap-5 p-5 px-6 h-full">
-      <FieldGroup title="Personality">
-        <Field label="System Prompt">
+      <FieldGroup title="Core System Prompt">
+        <Field label="Read Only">
+          <textarea
+            value={corePrompt}
+            readOnly
+            rows={9}
+            className="w-full bg-white/[0.025] border border-white/[0.06] text-white/45 px-3 py-2.5 rounded-lg text-[12px] font-mono outline-none resize-y min-h-[150px]"
+          />
+        </Field>
+      </FieldGroup>
+
+      <FieldGroup title="User Prompt">
+        <Field label="Editable">
           <textarea
             value={config.system_prompt}
             onChange={(e) => setConfig({ ...config, system_prompt: e.target.value })}
-            rows={24}
+            rows={14}
             className="w-full bg-white/[0.05] border border-white/10 text-white/90 px-3 py-2.5 rounded-lg text-[13px] font-inherit outline-none resize-y min-h-[300px] transition-all duration-200 focus:border-blue-500/50 focus:bg-white/[0.07] placeholder:text-white/20"
           />
         </Field>
@@ -432,11 +458,13 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 
 function Settings() {
   const [config, setConfig] = useState<VoiceConfig | null>(null);
+  const [corePrompt, setCorePrompt] = useState("");
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("config");
 
   useEffect(() => {
     invoke<VoiceConfig>("get_config").then(setConfig);
+    invoke<string>("get_core_system_prompt").then(setCorePrompt);
   }, []);
 
   const save = async () => {
@@ -490,7 +518,7 @@ function Settings() {
       {/* Body */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {tab === "config" && <ConfigTab config={config} setConfig={setConfig} />}
-        {tab === "prompt" && <PromptTab config={config} setConfig={setConfig} />}
+        {tab === "prompt" && <PromptTab config={config} setConfig={setConfig} corePrompt={corePrompt} />}
         {tab === "tools" && <ToolsTab config={config} setConfig={setConfig} />}
         {tab === "knowledge" && <KnowledgeTab />}
       </div>
@@ -607,15 +635,11 @@ function Orb() {
       if (newStage === "transcribed") {
         addBubble("user", text);
       } else if (newStage === "tool_call") {
-        // Replace any existing tool/status chip with the new one (only keep one)
-        setBubbles((prev) => {
-          const filtered = prev.filter((b) => b.role !== "tool" && b.role !== "status");
-          return [...filtered, { role: "tool", text, id: bubbleId++ }];
-        });
+        addBubble("tool", text);
       } else if (newStage === "speaking") {
-        // Remove ephemeral tool/status chips when assistant starts speaking
+        // Remove ephemeral status chips when assistant starts speaking.
         setBubbles((prev) => {
-          const filtered = prev.filter((b) => b.role !== "tool" && b.role !== "status");
+          const filtered = prev.filter((b) => b.role !== "status");
           const last = filtered[filtered.length - 1];
           if (last && last.role === "assistant") {
             const updated = [...filtered];
@@ -627,6 +651,13 @@ function Orb() {
       } else if (newStage === "error") {
         addBubble("status", text);
       }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<string>("llm_debug", (event) => {
+      addBubble("debug", event.payload);
     });
     return () => { unlisten.then((fn) => fn()); };
   }, []);
@@ -758,7 +789,17 @@ function BubbleComponent({ bubble }: { bubble: ChatBubble }) {
       <div className="self-center animate-fade-in">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#222228] text-white/40 text-[11px] font-medium">
           <span className="text-[10px] animate-gear-spin">&#9881;</span>
-          {label}
+          Tool call: {label}
+        </div>
+      </div>
+    );
+  }
+
+  if (bubble.role === "debug") {
+    return (
+      <div className="self-stretch animate-fade-in">
+        <div className="px-3 py-2 rounded-md bg-[#101016] border border-white/[0.06] text-cyan-200/70 text-[10px] leading-relaxed font-mono break-words">
+          {bubble.text}
         </div>
       </div>
     );
