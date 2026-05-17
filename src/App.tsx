@@ -663,11 +663,19 @@ function Orb() {
         // Remove ephemeral status chips when assistant starts speaking.
         setBubbles((prev) => {
           const filtered = prev.filter((b) => b.role !== "status");
-          const last = filtered[filtered.length - 1];
-          if (last && last.role === "assistant") {
-            const updated = [...filtered];
-            updated[updated.length - 1] = { ...last, text };
-            return updated;
+          // Walk backwards: skip debug bubbles (LLM request/response chips that
+          // get emitted between streamed sentences) and merge into the most
+          // recent assistant bubble of this turn. Stop at user/tool boundaries
+          // so a new turn always starts a fresh bubble.
+          for (let i = filtered.length - 1; i >= 0; i--) {
+            const b = filtered[i];
+            if (b.role === "debug") continue;
+            if (b.role === "assistant") {
+              const updated = [...filtered];
+              updated[i] = { ...b, text };
+              return updated;
+            }
+            break;
           }
           return [...filtered, { role: "assistant", text, id: bubbleId++ }];
         });
