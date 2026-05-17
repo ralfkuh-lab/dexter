@@ -19,12 +19,6 @@ Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
 
 ## Features / Ideen (nicht dringend)
 
-- [ ] **Push-to-talk auf Wayland validieren.** Default ist `F9`
-  (konfigurierbar in Settings) über `tauri-plugin-global-shortcut`. Wayland
-  blockt globale Hotkeys teilweise und schluckt die Taste je nach Compositor
-  nicht vor dem fokussierten Fenster. F9 ist Funktionstaste → kein Zeichen
-  rutscht durch, aber „Hold" muss noch unter Wayland geprüft werden.
-
 - [ ] **Diagnose-Anzeige in Settings:** aktueller Config-Pfad
   (`~/.config/voice-assistant/config.json`) und Erreichbarkeit der drei
   Endpunkte (STT/LLM/TTS) live in der UI.
