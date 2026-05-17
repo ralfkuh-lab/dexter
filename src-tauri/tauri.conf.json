@@ -17,7 +17,7 @@
         "title": "Voice Assistant",
         "width": 380,
         "height": 420,
-        "resizable": false,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

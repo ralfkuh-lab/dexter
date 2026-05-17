@@ -28,6 +28,14 @@ interface SandboxConfig {
   allow_network: boolean;
 }
 
+interface WindowConfig {
+  decorations: boolean;
+  width: number;
+  height: number;
+  x: number | null;
+  y: number | null;
+}
+
 interface VoiceConfig {
   whisper_server_url: string;
   llm_provider: string;
@@ -41,6 +49,7 @@ interface VoiceConfig {
   system_prompt: string;
   tools: ToolsConfig;
   sandbox: SandboxConfig;
+  window: WindowConfig;
 }
 
 interface AudioChunk {
@@ -98,6 +107,20 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
         </Field>
         <Field label="Voice">
           <Input value={config.tts_voice} onChange={(v) => setConfig({ ...config, tts_voice: v })} placeholder="de_DE-thorsten-medium" />
+        </Field>
+      </FieldGroup>
+
+      <FieldGroup title="Window">
+        <Field label="Show title bar (decorations)">
+          <Toggle
+            on={config.window.decorations}
+            onToggle={() =>
+              setConfig({
+                ...config,
+                window: { ...config.window, decorations: !config.window.decorations },
+              })
+            }
+          />
         </Field>
       </FieldGroup>
 

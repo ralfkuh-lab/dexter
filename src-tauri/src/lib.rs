@@ -122,6 +122,35 @@ fn default_user_prompt() -> String {
     "Sprich grundsätzlich Deutsch, außer der Nutzer bittet ausdrücklich um eine andere Sprache. Halte Antworten kurz und gesprächig. Nutze keine Markdown-Formatierung, keine Codeblöcke und keine Aufzählungen.".to_string()
 }
 
+fn default_window_width() -> f64 { 380.0 }
+fn default_window_height() -> f64 { 420.0 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WindowConfig {
+    #[serde(default)]
+    pub decorations: bool,
+    #[serde(default = "default_window_width")]
+    pub width: f64,
+    #[serde(default = "default_window_height")]
+    pub height: f64,
+    #[serde(default)]
+    pub x: Option<i32>,
+    #[serde(default)]
+    pub y: Option<i32>,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            decorations: false,
+            width: default_window_width(),
+            height: default_window_height(),
+            x: None,
+            y: None,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VoiceConfig {
     #[serde(default = "default_whisper_server_url")]
@@ -148,6 +177,8 @@ pub struct VoiceConfig {
     pub tools: ToolsConfig,
     #[serde(default)]
     pub sandbox: sandbox::SandboxConfig,
+    #[serde(default)]
+    pub window: WindowConfig,
 }
 
 impl Default for VoiceConfig {
@@ -165,6 +196,7 @@ impl Default for VoiceConfig {
             system_prompt: default_user_prompt(),
             tools: ToolsConfig::default(),
             sandbox: sandbox::SandboxConfig::default(),
+            window: WindowConfig::default(),
         }
     }
 }
@@ -225,8 +257,11 @@ fn get_core_system_prompt() -> String {
 }
 
 #[tauri::command]
-fn set_config(state: tauri::State<AppState>, config: VoiceConfig) {
+fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: VoiceConfig) {
     config.save();
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_decorations(config.window.decorations);
+    }
     *state.config.lock().unwrap() = config;
 }
 
@@ -254,23 +289,21 @@ fn hide_window(app: tauri::AppHandle) {
 
 fn reveal_main_window(app: &tauri::AppHandle, reload: bool) {
     if let Some(window) = app.get_webview_window("main") {
-        let win_w = 380.0;
-        let win_h = 420.0;
-        let _ = window.set_size(tauri::LogicalSize::new(win_w, win_h));
+        let state = app.state::<AppState>();
+        let win_cfg = state.config.lock().unwrap().window.clone();
 
-        #[cfg(target_os = "linux")]
-        {
-            let _ = window.set_position(tauri::PhysicalPosition::new(3000, 1500));
-        }
+        let _ = window.set_decorations(win_cfg.decorations);
+        let _ = window.set_size(tauri::LogicalSize::new(win_cfg.width, win_cfg.height));
 
-        #[cfg(not(target_os = "linux"))]
-        if let Ok(Some(monitor)) = window.current_monitor() {
+        if let (Some(x), Some(y)) = (win_cfg.x, win_cfg.y) {
+            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        } else if let Ok(Some(monitor)) = window.current_monitor() {
             let screen = monitor.size();
             let scale = monitor.scale_factor();
             let padding = 20.0 * scale;
             let bottom_reserved = 80.0 * scale;
-            let physical_w = win_w * scale;
-            let physical_h = win_h * scale;
+            let physical_w = win_cfg.width * scale;
+            let physical_h = win_cfg.height * scale;
             let x = screen.width as f64 - physical_w - padding;
             let y = screen.height as f64 - physical_h - padding - bottom_reserved;
             let _ = window.set_position(tauri::PhysicalPosition::new(
@@ -1133,7 +1166,45 @@ pub fn run() {
             // Make webview background transparent and hide on launch
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+                let initial_decorations = app
+                    .state::<AppState>()
+                    .config
+                    .lock()
+                    .unwrap()
+                    .window
+                    .decorations;
+                let _ = window.set_decorations(initial_decorations);
                 let _ = window.hide();
+
+                // Persist geometry on resize/move (debounced via the OS event coalescing).
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::Resized(size) => {
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let scale = win.scale_factor().unwrap_or(1.0);
+                            let logical = size.to_logical::<f64>(scale);
+                            let state = app_handle.state::<AppState>();
+                            let mut cfg = state.config.lock().unwrap();
+                            if (cfg.window.width - logical.width).abs() > 0.5
+                                || (cfg.window.height - logical.height).abs() > 0.5
+                            {
+                                cfg.window.width = logical.width;
+                                cfg.window.height = logical.height;
+                                cfg.save();
+                            }
+                        }
+                    }
+                    tauri::WindowEvent::Moved(pos) => {
+                        let state = app_handle.state::<AppState>();
+                        let mut cfg = state.config.lock().unwrap();
+                        if cfg.window.x != Some(pos.x) || cfg.window.y != Some(pos.y) {
+                            cfg.window.x = Some(pos.x);
+                            cfg.window.y = Some(pos.y);
+                            cfg.save();
+                        }
+                    }
+                    _ => {}
+                });
             }
 
             Ok(())
