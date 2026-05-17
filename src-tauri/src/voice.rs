@@ -1093,6 +1093,12 @@ fn find_sentence_end(text: &str) -> Option<usize> {
             if next_idx < chars.len() {
                 let (_, next_ch) = chars[next_idx];
                 if next_ch.is_whitespace() {
+                    // German ordinal numbers ("der 17. Mai", "3. Kapitel") and
+                    // version/section numbers shouldn't be treated as sentence
+                    // ends. If a '.' is directly preceded by a digit, skip it.
+                    if ch == '.' && i > 0 && chars[i - 1].1.is_ascii_digit() {
+                        continue;
+                    }
                     // Return the position of the whitespace so we consume it
                     return Some(chars[next_idx].0);
                 }
