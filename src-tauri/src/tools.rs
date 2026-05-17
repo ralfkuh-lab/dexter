@@ -133,17 +133,21 @@ pub fn take_screenshot(_monitor: Option<u32>) -> Result<String, String> {
     let _ = std::fs::remove_file(&tmp_raw);
     let img = img?;
 
-    // Auf 1280 px längste Seite verkleinern (gleicher Vertrag wie macOS).
-    let resized = if img.width().max(img.height()) > 1280 {
-        img.resize(1280, 1280, image::imageops::FilterType::Triangle)
+    // Auf 1120 px längste Seite — bei Gemma-3n bleibt das in einem SigLIP-
+    // Slice (256 Image-Tokens) statt vier, spart Encoding-Zeit und VRAM.
+    // Lanczos3 statt Triangle, damit feiner UI-Text scharf bleibt.
+    let resized = if img.width().max(img.height()) > 1120 {
+        img.resize(1120, 1120, image::imageops::FilterType::Lanczos3)
     } else {
         img
     };
 
+    // Q95 statt Q70 — Screenshots enthalten oft kleine Schrift, JPEG-Artefakte
+    // bei Q70 zerstören sonst den OCR-Pfad des Vision-Modells.
     let rgb = resized.to_rgb8();
     let mut jpeg_bytes = Vec::new();
     let encoder =
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 70);
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 95);
     rgb.write_with_encoder(encoder)
         .map_err(|e| format!("JPEG encode failed: {}", e))?;
 
