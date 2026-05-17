@@ -89,7 +89,7 @@ piper-voices/       ONNX-Voices (NICHT in git — .gitignore)
 ## Git / Commit
 
 - Commit-Messages: Imperativ, ein klarer Titel, Body erklärt **warum**.
-  Co-Authored-By-Trailer für Claude (siehe bisherige Commits als Template).
+  Keinen Co-Authored-By-Trailer anhängen.
 - Branch: alles auf `main`, kein PR-Workflow. Direkt commit + push.
 
 ## TODO
