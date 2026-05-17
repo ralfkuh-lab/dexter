@@ -21,9 +21,12 @@ pub struct LlmStats {
 }
 
 fn emit_llm_stats(app: &tauri::AppHandle, mut stats: LlmStats) {
-    if stats.ctx_max.is_none() {
+    {
         let state = app.state::<AppState>();
-        stats.ctx_max = *state.ctx_max.lock().unwrap();
+        if stats.ctx_max.is_none() {
+            stats.ctx_max = *state.ctx_max.lock().unwrap();
+        }
+        *state.last_stats.lock().unwrap() = Some(stats.clone());
     }
     let _ = app.emit("llm_stats", stats);
 }

@@ -724,6 +724,9 @@ function Orb() {
       invoke<number | null>("get_ctx_max")
         .then((n) => setCtxMax(n))
         .catch(() => {});
+      invoke<LlmStats | null>("get_last_stats")
+        .then((s) => { if (s) setStats(s); })
+        .catch(() => {});
     };
     load();
     const unCfg = listen("config_changed", load);

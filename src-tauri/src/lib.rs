@@ -51,6 +51,9 @@ pub struct AppState {
     pipeline_cancel: Mutex<CancellationToken>,
     // Discovered max context window for the configured LLM model, if known.
     pub ctx_max: Mutex<Option<u32>>,
+    // Last emitted LLM stats, so the frontend can recover them on (re-)mount
+    // even if the event fired before it subscribed (e.g. warmup during setup).
+    pub last_stats: Mutex<Option<voice::LlmStats>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -494,6 +497,11 @@ fn register_ptt_shortcut(
 #[tauri::command]
 fn get_ctx_max(state: tauri::State<AppState>) -> Option<u32> {
     *state.ctx_max.lock().unwrap()
+}
+
+#[tauri::command]
+fn get_last_stats(state: tauri::State<AppState>) -> Option<voice::LlmStats> {
+    state.last_stats.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -1272,6 +1280,7 @@ pub fn run() {
             is_recording: Mutex::new(false),
             pipeline_cancel: Mutex::new(CancellationToken::new()),
             ctx_max: Mutex::new(None),
+            last_stats: Mutex::new(None),
         })
         .setup(|app| {
             // Build tray menu
@@ -1407,6 +1416,7 @@ pub fn run() {
             get_config,
             get_core_system_prompt,
             get_ctx_max,
+            get_last_stats,
             list_models,
             set_config,
             get_messages,
