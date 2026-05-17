@@ -1136,6 +1136,99 @@ fn trim_base_url(url: &str) -> &str {
     url.trim_end_matches('/')
 }
 
+/// Fire-and-forget warmup: send the static prompt prefix (system + developer)
+/// plus a tiny user turn with max_tokens=1 to prime the backend's prompt cache.
+/// Subsequent real requests with the same prefix skip prompt-eval entirely,
+/// which on slow/large models is the dominant TTFT cost.
+pub async fn warmup_llm(config: &VoiceConfig) {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let user_prompt = config.system_prompt.trim();
+
+    let result = if config.llm_provider == "ollama" {
+        let mut messages = vec![OllamaMessage {
+            role: "system".to_string(),
+            content: config.effective_system_prompt(),
+            tool_calls: None,
+        }];
+        messages.push(OllamaMessage {
+            role: "user".to_string(),
+            content: ".".to_string(),
+            tool_calls: None,
+        });
+
+        let body = serde_json::json!({
+            "model": config.llm_model,
+            "messages": messages,
+            "stream": false,
+            "options": { "num_predict": 1 },
+        });
+
+        client
+            .post(format!("{}/api/chat", trim_base_url(&config.llm_base_url)))
+            .json(&body)
+            .send()
+            .await
+    } else {
+        let mut messages = vec![OpenAiMessage {
+            role: "system".to_string(),
+            content: Some(crate::core_system_prompt().to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        if !user_prompt.is_empty() {
+            messages.push(OpenAiMessage {
+                role: "developer".to_string(),
+                content: Some(user_prompt.to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+        messages.push(OpenAiMessage {
+            role: "user".to_string(),
+            content: Some(".".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        });
+
+        let body = serde_json::json!({
+            "model": config.llm_model,
+            "messages": messages,
+            "stream": false,
+            "max_tokens": 1,
+            "temperature": 0.0,
+        });
+
+        client
+            .post(openai_chat_completions_url(&config.llm_base_url))
+            .json(&body)
+            .send()
+            .await
+    };
+
+    match result {
+        Ok(resp) => {
+            let status = resp.status();
+            if !status.is_success() {
+                eprintln!(
+                    "LLM warmup non-OK: {} ({})",
+                    status,
+                    resp.text().await.unwrap_or_default()
+                );
+            } else {
+                let _ = resp.bytes().await;
+            }
+        }
+        Err(e) => eprintln!("LLM warmup failed: {}", e),
+    }
+}
+
 fn openai_chat_completions_url(base_url: &str) -> String {
     let base = trim_base_url(base_url);
     if base.ends_with("/v1") {

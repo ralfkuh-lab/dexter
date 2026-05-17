@@ -273,9 +273,15 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Voic
         let _ = window.set_decorations(config.window.decorations);
     }
 
-    let (old_hotkey, old_base, old_model) = {
+    let (old_hotkey, old_base, old_model, old_provider, old_prompt) = {
         let cfg = state.config.lock().unwrap();
-        (cfg.hotkey.clone(), cfg.llm_base_url.clone(), cfg.llm_model.clone())
+        (
+            cfg.hotkey.clone(),
+            cfg.llm_base_url.clone(),
+            cfg.llm_model.clone(),
+            cfg.llm_provider.clone(),
+            cfg.system_prompt.clone(),
+        )
     };
     if old_hotkey != config.hotkey {
         let _ = app.global_shortcut().unregister(old_hotkey.as_str());
@@ -286,12 +292,19 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Voic
         }
     }
 
-    let llm_changed = old_base != config.llm_base_url || old_model != config.llm_model;
+    let llm_endpoint_changed = old_base != config.llm_base_url
+        || old_model != config.llm_model
+        || old_provider != config.llm_provider;
+    let warmup_needed = llm_endpoint_changed || old_prompt != config.system_prompt;
+
     *state.config.lock().unwrap() = config;
     let _ = app.emit("config_changed", ());
 
-    if llm_changed {
+    if llm_endpoint_changed {
         refresh_ctx_max(&app);
+    }
+    if warmup_needed {
+        warmup_llm_async(&app);
     }
 }
 
@@ -455,6 +468,15 @@ fn refresh_ctx_max(app: &tauri::AppHandle) {
             *state.ctx_max.lock().unwrap() = ctx;
         }
         let _ = app.emit("config_changed", ());
+    });
+}
+
+/// Prime the LLM prompt cache with the static prefix in the background.
+fn warmup_llm_async(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let cfg = { app.state::<AppState>().config.lock().unwrap().clone() };
+        voice::warmup_llm(&cfg).await;
     });
 }
 
@@ -1326,6 +1348,10 @@ pub fn run() {
 
             // Probe the LLM backend for max context window (non-blocking).
             refresh_ctx_max(app.handle());
+
+            // Prime the prompt cache so the first real request isn't paying
+            // prompt-eval cost for the static system+developer prefix.
+            warmup_llm_async(app.handle());
 
 // Hide dock icon on macOS
             #[cfg(target_os = "macos")]
