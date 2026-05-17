@@ -475,6 +475,57 @@ fn get_ctx_max(state: tauri::State<AppState>) -> Option<u32> {
 }
 
 #[tauri::command]
+async fn list_models(base_url: String, provider: String) -> Result<Vec<String>, String> {
+    let base = base_url.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(4))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    if provider == "ollama" {
+        // Ollama: /api/tags → { models: [{ name, ... }] }
+        let resp = client
+            .get(format!("{}/api/tags", base))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let mut out: Vec<String> = v
+            .get("models")
+            .and_then(|m| m.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        out.dedup();
+        return Ok(out);
+    }
+
+    // OpenAI-compatible (llama.cpp, vLLM, sglang, …): /v1/models → { data: [{ id }] }
+    let resp = client
+        .get(format!("{}/v1/models", base))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let mut out: Vec<String> = v
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("id").and_then(|s| s.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
+#[tauri::command]
 fn hide_window(app: tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
@@ -1330,6 +1381,7 @@ pub fn run() {
             get_config,
             get_core_system_prompt,
             get_ctx_max,
+            list_models,
             set_config,
             get_messages,
             clear_messages,

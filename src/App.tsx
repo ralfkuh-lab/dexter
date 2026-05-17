@@ -60,6 +60,7 @@ interface LlmStats {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   ctx_max: number | null;
+  model: string | null;
 }
 
 interface AudioChunk {
@@ -107,7 +108,12 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
           <Input value={config.llm_base_url} onChange={(v) => setConfig({ ...config, llm_base_url: v })} placeholder="http://127.0.0.1:8081" />
         </Field>
         <Field label="Chat Model">
-          <Input value={config.llm_model} onChange={(v) => setConfig({ ...config, llm_model: v })} placeholder="gemma" />
+          <ModelSelect
+            value={config.llm_model}
+            onChange={(v) => setConfig({ ...config, llm_model: v })}
+            baseUrl={config.llm_base_url}
+            provider={config.llm_provider}
+          />
         </Field>
       </FieldGroup>
 
@@ -489,6 +495,74 @@ function Input({ value, onChange, placeholder }: { value: string; onChange: (v: 
   );
 }
 
+function ModelSelect({
+  value,
+  onChange,
+  baseUrl,
+  provider,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  baseUrl: string;
+  provider: string;
+}) {
+  const [models, setModels] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = () => {
+    setError(null);
+    setModels(null);
+    invoke<string[]>("list_models", { baseUrl, provider })
+      .then((m) => setModels(m))
+      .catch((e) => {
+        setModels([]);
+        setError(String(e));
+      });
+  };
+
+  useEffect(() => { refresh(); }, [baseUrl, provider]);
+
+  if (models === null) {
+    return <div className="text-[12px] text-white/40 px-1">Loading models...</div>;
+  }
+
+  // Empty list or error → fall back to free-text input plus a hint.
+  if (models.length === 0) {
+    return (
+      <div className="flex flex-col gap-1">
+        <Input value={value} onChange={onChange} placeholder="model id" />
+        <div className="text-[10px] text-white/35">
+          {error ? `No models available (${error})` : "Endpoint returned no models"}
+        </div>
+      </div>
+    );
+  }
+
+  // Selected value not in the list — append it so the user doesn't lose it.
+  const options = models.includes(value) ? models : [...models, value].filter(Boolean);
+
+  return (
+    <div className="flex gap-2 items-center">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 bg-white/[0.05] border border-white/10 text-white/90 px-3 py-2.5 rounded-lg text-[13px] outline-none transition-all duration-200 focus:border-blue-500/50 focus:bg-white/[0.07]"
+      >
+        {options.map((m) => (
+          <option key={m} value={m} className="bg-neutral-800">{m}</option>
+        ))}
+      </select>
+      <button
+        onClick={refresh}
+        title="Reload model list"
+        className="text-white/50 hover:text-white/90 text-[12px] px-2 py-1 rounded border border-white/10 hover:border-white/30"
+      >
+        ↻
+      </button>
+    </div>
+  );
+}
+
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <button
@@ -595,7 +669,8 @@ function StatsBar({
   stats: LlmStats | null;
 }) {
   const parts: string[] = [];
-  if (model) parts.push(model);
+  const shownModel = stats?.model || model;
+  if (shownModel) parts.push(shownModel);
 
   const effCtxMax = stats?.ctx_max ?? ctxMax;
   const prompt = stats?.prompt_tokens ?? null;

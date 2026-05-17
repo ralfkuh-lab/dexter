@@ -14,6 +14,10 @@ pub struct LlmStats {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
     pub ctx_max: Option<u32>,
+    /// Model id reported by the endpoint in the streaming response (may differ
+    /// from what the user picked in settings, e.g. when the server only serves
+    /// one model regardless of the request body).
+    pub model: Option<String>,
 }
 
 fn emit_llm_stats(app: &tauri::AppHandle, mut stats: LlmStats) {
@@ -262,6 +266,8 @@ impl OllamaToolCall {
 /// Streaming chat response from Ollama, split into sentences.
 #[derive(Deserialize)]
 struct OllamaStreamChunk {
+    #[serde(default)]
+    model: Option<String>,
     message: Option<OllamaResponseMessage>,
     done: Option<bool>,
     #[serde(default)]
@@ -330,6 +336,8 @@ struct OpenAiToolFunctionOut {
 
 #[derive(Deserialize)]
 struct OpenAiStreamChunk {
+    #[serde(default)]
+    model: Option<String>,
     #[serde(default)]
     choices: Vec<OpenAiStreamChoice>,
     #[serde(default)]
@@ -647,6 +655,11 @@ async fn chat_streaming_ollama(
             }
 
             if let Ok(stream_chunk) = serde_json::from_str::<OllamaStreamChunk>(line_str) {
+                if stats.model.is_none() {
+                    if let Some(m) = &stream_chunk.model {
+                        stats.model = Some(m.clone());
+                    }
+                }
                 if let Some(msg) = &stream_chunk.message {
                     // Collect native tool calls if present
                     if let Some(tc) = &msg.tool_calls {
@@ -915,6 +928,12 @@ async fn chat_streaming_openai(
             let Ok(stream_chunk) = serde_json::from_str::<OpenAiStreamChunk>(data) else {
                 continue;
             };
+
+            if stats.model.is_none() {
+                if let Some(m) = &stream_chunk.model {
+                    stats.model = Some(m.clone());
+                }
+            }
 
             if let Some(usage) = stream_chunk.usage {
                 if usage.prompt_tokens.is_some() {
