@@ -470,6 +470,11 @@ fn register_ptt_shortcut(
 }
 
 #[tauri::command]
+fn get_ctx_max(state: tauri::State<AppState>) -> Option<u32> {
+    *state.ctx_max.lock().unwrap()
+}
+
+#[tauri::command]
 fn hide_window(app: tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
@@ -1324,6 +1329,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             get_core_system_prompt,
+            get_ctx_max,
             set_config,
             get_messages,
             clear_messages,

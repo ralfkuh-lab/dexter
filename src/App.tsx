@@ -585,18 +585,31 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-function StatsBar({ stats }: { stats: LlmStats }) {
+function StatsBar({
+  model,
+  ctxMax,
+  stats,
+}: {
+  model: string;
+  ctxMax: number | null;
+  stats: LlmStats | null;
+}) {
   const parts: string[] = [];
-  if (stats.prompt_tokens != null) {
-    if (stats.ctx_max != null) {
-      const pct = Math.round((stats.prompt_tokens / stats.ctx_max) * 100);
-      parts.push(`ctx ${formatTokens(stats.prompt_tokens)}/${formatTokens(stats.ctx_max)} (${pct}%)`);
-    } else {
-      parts.push(`ctx ${formatTokens(stats.prompt_tokens)}`);
-    }
+  if (model) parts.push(model);
+
+  const effCtxMax = stats?.ctx_max ?? ctxMax;
+  const prompt = stats?.prompt_tokens ?? null;
+  if (prompt != null && effCtxMax != null) {
+    const pct = Math.round((prompt / effCtxMax) * 100);
+    parts.push(`ctx ${formatTokens(prompt)}/${formatTokens(effCtxMax)} (${pct}%)`);
+  } else if (prompt != null) {
+    parts.push(`ctx ${formatTokens(prompt)}`);
+  } else if (effCtxMax != null) {
+    parts.push(`ctx —/${formatTokens(effCtxMax)}`);
   }
-  if (stats.ttft_ms != null) parts.push(`TTFT ${stats.ttft_ms}ms`);
-  if (stats.tokens_per_sec != null) parts.push(`${stats.tokens_per_sec.toFixed(1)} tok/s`);
+
+  if (stats?.ttft_ms != null) parts.push(`TTFT ${stats.ttft_ms}ms`);
+  if (stats?.tokens_per_sec != null) parts.push(`${stats.tokens_per_sec.toFixed(1)} tok/s`);
   if (parts.length === 0) return null;
   return (
     <div className="self-center text-[10px] text-white/35 font-mono pb-1 select-none">
@@ -613,6 +626,8 @@ function Orb() {
   const [mouseRecording, setMouseRecording] = useState(false);
   const [hotkey, setHotkey] = useState<string>("F9");
   const [showStats, setShowStats] = useState<boolean>(true);
+  const [model, setModel] = useState<string>("");
+  const [ctxMax, setCtxMax] = useState<number | null>(null);
   const [stats, setStats] = useState<LlmStats | null>(null);
   const bubblesEndRef = useRef<HTMLDivElement>(null);
 
@@ -622,7 +637,11 @@ function Orb() {
         .then((c) => {
           setHotkey(c.hotkey || "F9");
           setShowStats(c.show_stats !== false);
+          setModel(c.llm_model || "");
         })
+        .catch(() => {});
+      invoke<number | null>("get_ctx_max")
+        .then((n) => setCtxMax(n))
         .catch(() => {});
     };
     load();
@@ -841,7 +860,7 @@ function Orb() {
         <div ref={bubblesEndRef} />
       </div>
 
-      {showStats && stats && <StatsBar stats={stats} />}
+      {showStats && <StatsBar model={model} ctxMax={ctxMax} stats={stats} />}
 
       {/* Orb */}
       <div className="flex justify-center pb-5 pt-2 shrink-0">
