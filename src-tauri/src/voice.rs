@@ -262,6 +262,14 @@ struct OpenAiDelta {
 
 /// Build tool definitions based on enabled tools in config.
 pub fn build_tools(tools_config: &crate::ToolsConfig) -> Vec<serde_json::Value> {
+    let shell_name = if cfg!(target_os = "macos") {
+        "zsh"
+    } else if cfg!(target_os = "windows") {
+        "PowerShell"
+    } else {
+        "sh"
+    };
+
     let mut tools = Vec::new();
 
     if tools_config.search_knowledge {
@@ -360,7 +368,7 @@ pub fn build_tools(tools_config: &crate::ToolsConfig) -> Vec<serde_json::Value> 
             "type": "function",
             "function": {
                 "name": "list_running_apps",
-                "description": "List all currently running applications on the user's Mac. Use when the user asks what apps are open or running.",
+                "description": "List the user's currently running applications or open windows. Use when the user asks what apps are open or running.",
                 "parameters": {
                     "type": "object",
                     "properties": {}
@@ -394,13 +402,13 @@ pub fn build_tools(tools_config: &crate::ToolsConfig) -> Vec<serde_json::Value> 
             "type": "function",
             "function": {
                 "name": "run_command",
-                "description": "Execute a shell command on the user's Mac and return its output. Use when the user asks to check system status, manage files, run scripts, install something, or perform any task that requires terminal access. Always prefer specific, minimal commands.",
+                "description": format!("Execute a shell command on the user's computer and return its output. Use when the user asks to check system status, manage files, run scripts, install something, or perform any task that requires terminal access. Always prefer specific, minimal commands. The command runs in {}.", shell_name),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "The shell command to execute (runs in zsh)"
+                            "description": format!("The shell command to execute (runs in {})", shell_name)
                         }
                     },
                     "required": ["command"]

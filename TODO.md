@@ -2,18 +2,6 @@
 
 Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
 
-## Bugs / kleine Korrekturen
-
-- [ ] **Tool-Beschreibungen lecken macOS-Wording in den LLM-Kontext.**
-  `voice.rs` build_tools sagt dem Modell „on the user's Mac" (Z.363, Z.397)
-  und „runs in zsh" (Z.403). Auf Linux ist das falsch und kann den Assistant
-  verwirren. → Plattform-neutral umformulieren oder per `cfg!` einsetzen.
-
-- [ ] **User-Agent im `web_fetch` lügt.** `tools.rs:254` sendet eine Mac-Safari-
-  UA. Auf einen neutralen oder Linux-Firefox-String ändern.
-
-- [ ] **`list_running_apps` Tool-Description sagt „on your Mac".** Same as oben.
-
 ## Linux-Lücken (aktuell nur Stub oder kaputt)
 
 - [ ] **Screenshot-Tool tut auf Linux nichts.** `tools.rs:64` gibt nur
