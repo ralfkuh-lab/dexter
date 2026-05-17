@@ -797,7 +797,7 @@ function Orb() {
       <div className="flex justify-center pb-5 pt-2 shrink-0">
         <div
           className={`${orbClass} relative w-20 h-20 cursor-pointer select-none`}
-          title={`Hold ${hotkey} to talk`}
+          title={`Push to talk — hold orb or ${hotkey}`}
           onPointerDown={(e) => {
             e.currentTarget.setPointerCapture(e.pointerId);
             beginManualRecording();
