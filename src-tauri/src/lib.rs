@@ -264,7 +264,6 @@ fn get_config(state: tauri::State<AppState>) -> VoiceConfig {
 }
 
 #[tauri::command]
-#[allow(dead_code)]
 fn get_core_system_prompt() -> String {
     core_system_prompt().to_string()
 }
@@ -323,7 +322,7 @@ fn clear_messages(state: tauri::State<AppState>) {
 
 #[tauri::command]
 fn show_window(app: tauri::AppHandle) {
-    reveal_main_window(&app, true);
+    reveal_main_window(&app);
 }
 
 fn handle_ptt_press(app: &tauri::AppHandle) {
@@ -335,7 +334,7 @@ fn handle_ptt_press(app: &tauri::AppHandle) {
     }
 
     let _ = app.emit("pipeline_interrupted", ());
-    reveal_main_window(app, false);
+    reveal_main_window(app);
     let _ = app.emit("hotkey_pressed", ());
 
     let state = app.state::<AppState>();
@@ -562,10 +561,13 @@ fn hide_window(app: tauri::AppHandle) {
     }
 }
 
-fn reveal_main_window(app: &tauri::AppHandle, reload: bool) {
+fn reveal_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let state = app.state::<AppState>();
-        let win_cfg = state.config.lock().unwrap().window.clone();
+        let win_cfg = {
+            let state = app.state::<AppState>();
+            let cfg = state.config.lock().unwrap();
+            cfg.window.clone()
+        };
 
         let _ = window.set_decorations(win_cfg.decorations);
         let _ = window.set_size(tauri::LogicalSize::new(win_cfg.width, win_cfg.height));
@@ -587,9 +589,6 @@ fn reveal_main_window(app: &tauri::AppHandle, reload: bool) {
             ));
         }
 
-        if reload {
-            let _ = window.eval("window.location.reload()");
-        }
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -852,7 +851,11 @@ async fn process_pipeline(
                         }
                         return Ok::<String, String>(text);
                     }
-                    voice::StreamResult::ToolCalls(tool_calls, preamble, xml_parsed) => {
+                    voice::StreamResult::ToolCalls {
+                        calls: tool_calls,
+                        spoken_preamble: preamble,
+                        source,
+                    } => {
                         if cancel_llm.is_cancelled() {
                             return Err("interrupted".to_string());
                         }
@@ -865,15 +868,15 @@ async fn process_pipeline(
                             let _ = app.emit(
                                 "llm_debug",
                                 format!(
-                                    "LLM response: tool_calls=[{}], preamble_chars={}, xml_parsed={}",
+                                    "LLM response: tool_calls=[{}], preamble_chars={}, source={:?}",
                                     names,
                                     preamble.chars().count(),
-                                    xml_parsed
+                                    source
                                 ),
                             );
                         }
 
-                        if xml_parsed {
+                        if source == voice::ToolCallSource::Xml {
                             // XML-parsed tool calls: model emitted XML as text.
                             // Add the preamble as assistant content, then inject
                             // tool results as a user message (model doesn't understand
@@ -977,7 +980,7 @@ async fn process_pipeline(
 
             match result {
                 voice::StreamResult::Content(text) => Ok(text),
-                voice::StreamResult::ToolCalls(_, _, _) => {
+                voice::StreamResult::ToolCalls { .. } => {
                     Err("Model returned tool calls after max rounds".to_string())
                 }
             }
@@ -1311,10 +1314,10 @@ pub fn run() {
                             if window.is_visible().unwrap_or(false) {
                                 let _ = window.hide();
                             } else {
-                                reveal_main_window(app, true);
+                                reveal_main_window(app);
                             }
                         } else {
-                            reveal_main_window(app, true);
+                            reveal_main_window(app);
                         }
                     }
                     "settings" => {

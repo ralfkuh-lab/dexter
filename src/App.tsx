@@ -612,6 +612,7 @@ function Settings() {
     { id: "config", label: "Config" },
     { id: "prompt", label: "Prompt" },
     { id: "tools", label: "Tools" },
+    { id: "knowledge", label: "Knowledge" },
   ];
 
   return (

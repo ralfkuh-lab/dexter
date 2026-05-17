@@ -547,14 +547,28 @@ pub fn build_tools(tools_config: &crate::ToolsConfig) -> Vec<serde_json::Value> 
 
 /// Result of a streaming chat — either the model streamed content (sentences sent
 /// via channel) or it requested tool calls.
+/// Origin of the tool calls in `StreamResult::ToolCalls`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolCallSource {
+    /// Provider's native structured tool-call format (Ollama tool_calls,
+    /// OpenAI tool_calls). Echoed back to the LLM as-is.
+    Native,
+    /// Model emitted text-mode XML tool calls (`<tool_call>…</tool_call>`)
+    /// that we parsed out and rewrote as native form.
+    Xml,
+}
+
 pub enum StreamResult {
     /// Model streamed a text response. Full text returned here.
     Content(String),
-    /// Model requested tool calls. May include pre-tool-call narration text
-    /// (e.g. "Let me search for that") that was already sent to TTS.
-    /// Fields: (tool_calls, spoken_preamble, xml_parsed)
-    /// xml_parsed=true means the model emitted XML text, not native Ollama tool_calls.
-    ToolCalls(Vec<OllamaToolCall>, String, bool),
+    /// Model requested tool calls. `spoken_preamble` is any pre-tool-call
+    /// narration text (e.g. "Let me search for that") that was already sent
+    /// to TTS before the tool call started.
+    ToolCalls {
+        calls: Vec<OllamaToolCall>,
+        spoken_preamble: String,
+        source: ToolCallSource,
+    },
 }
 
 /// Unified streaming chat. Streams with tools enabled.
@@ -799,11 +813,11 @@ async fn chat_streaming_ollama(
 
     // If we got tool calls (native or XML-parsed), return them with any spoken preamble
     if !collected_tool_calls.is_empty() {
-        return Ok(StreamResult::ToolCalls(
-            collected_tool_calls,
-            spoken_text.trim().to_string(),
-            false,
-        ));
+        return Ok(StreamResult::ToolCalls {
+            calls: collected_tool_calls,
+            spoken_preamble: spoken_text.trim().to_string(),
+            source: ToolCallSource::Native,
+        });
     }
 
     // Last-resort fallback: check full response for XML tool calls we might have missed
@@ -811,11 +825,11 @@ async fn chat_streaming_ollama(
     if has_tools && !full_response.is_empty() {
         if let Some(parsed) = parse_xml_tool_calls(&full_response) {
             if !parsed.is_empty() {
-                return Ok(StreamResult::ToolCalls(
-                    parsed,
-                    spoken_text.trim().to_string(),
-                    true,
-                ));
+                return Ok(StreamResult::ToolCalls {
+                    calls: parsed,
+                    spoken_preamble: spoken_text.trim().to_string(),
+                    source: ToolCallSource::Xml,
+                });
             }
         }
     }
@@ -1014,11 +1028,11 @@ async fn chat_streaming_openai(
 
     let tool_calls = openai_tool_call_accumulators_to_ollama(tool_call_accumulators);
     if !tool_calls.is_empty() {
-        return Ok(StreamResult::ToolCalls(
-            tool_calls,
-            spoken_text.trim().to_string(),
-            false,
-        ));
+        return Ok(StreamResult::ToolCalls {
+            calls: tool_calls,
+            spoken_preamble: spoken_text.trim().to_string(),
+            source: ToolCallSource::Native,
+        });
     }
 
     let remaining = sentence_buffer.trim().to_string();
