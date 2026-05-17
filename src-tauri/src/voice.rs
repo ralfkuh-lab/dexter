@@ -4,7 +4,6 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tokio::sync::mpsc;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 use std::collections::HashMap;
 
 // ── Audio Recording (cpal) ──
@@ -134,46 +133,6 @@ pub async fn transcribe_audio_http(
         .unwrap_or("")
         .trim()
         .to_string())
-}
-
-// ── Whisper Transcription (native) ──
-
-pub fn transcribe_audio(
-    model_path: &str,
-    samples: &[f32],
-    source_sample_rate: u32,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Resample to 16kHz mono if needed
-    let audio_16k = if source_sample_rate != 16000 {
-        resample(samples, source_sample_rate, 16000)
-    } else {
-        samples.to_vec()
-    };
-
-    let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())?;
-
-    let mut state = ctx.create_state()?;
-
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(Some("en"));
-    params.set_print_special(false);
-    params.set_print_progress(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
-    params.set_suppress_blank(true);
-    params.set_single_segment(true);
-
-    state.full(params, &audio_16k)?;
-
-    let num_segments = state.full_n_segments()?;
-    let mut text = String::new();
-    for i in 0..num_segments {
-        if let Ok(segment) = state.full_get_segment_text(i) {
-            text.push_str(&segment);
-        }
-    }
-
-    Ok(text.trim().to_string())
 }
 
 fn resample(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {

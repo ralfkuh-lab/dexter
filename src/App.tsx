@@ -29,8 +29,6 @@ interface SandboxConfig {
 }
 
 interface VoiceConfig {
-  whisper_model_path: string;
-  stt_provider: string;
   whisper_server_url: string;
   llm_provider: string;
   llm_base_url: string;
@@ -76,14 +74,8 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
   return (
     <div className="flex flex-col gap-5 p-5 px-6">
       <FieldGroup title="Speech Recognition">
-        <Field label="STT Provider">
-          <Input value={config.stt_provider} onChange={(v) => setConfig({ ...config, stt_provider: v })} placeholder="whisper-http" />
-        </Field>
         <Field label="Whisper Server URL">
           <Input value={config.whisper_server_url} onChange={(v) => setConfig({ ...config, whisper_server_url: v })} placeholder="http://127.0.0.1:8350" />
-        </Field>
-        <Field label="Native Whisper Model Path">
-          <Input value={config.whisper_model_path} onChange={(v) => setConfig({ ...config, whisper_model_path: v })} />
         </Field>
       </FieldGroup>
 

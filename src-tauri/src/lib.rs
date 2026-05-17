@@ -99,10 +99,6 @@ fn default_llm_model() -> String {
     "gemma".to_string()
 }
 
-fn default_stt_provider() -> String {
-    "whisper-http".to_string()
-}
-
 fn default_whisper_server_url() -> String {
     "http://127.0.0.1:8350".to_string()
 }
@@ -117,9 +113,6 @@ fn default_tts_voice() -> String {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VoiceConfig {
-    pub whisper_model_path: String,
-    #[serde(default = "default_stt_provider")]
-    pub stt_provider: String,
     #[serde(default = "default_whisper_server_url")]
     pub whisper_server_url: String,
     #[serde(default = "default_llm_provider")]
@@ -145,16 +138,7 @@ pub struct VoiceConfig {
 
 impl Default for VoiceConfig {
     fn default() -> Self {
-        let default_model = dirs::home_dir()
-            .map(|h| {
-                h.join(".cache/whisper/ggml-base.en.bin")
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .unwrap_or_default();
         Self {
-            whisper_model_path: default_model,
-            stt_provider: default_stt_provider(),
             whisper_server_url: default_whisper_server_url(),
             llm_provider: default_llm_provider(),
             llm_base_url: default_llm_base_url(),
@@ -405,19 +389,9 @@ async fn process_pipeline(
     )
     .map_err(|e: tauri::Error| e.to_string())?;
 
-    let transcript = if config.stt_provider == "native" {
-        let model_path = config.whisper_model_path.clone();
-        tokio::task::spawn_blocking(move || {
-            voice::transcribe_audio(&model_path, &samples, sample_rate)
-        })
+    let transcript = voice::transcribe_audio_http(&config.whisper_server_url, &samples, sample_rate)
         .await
-        .map_err(|e| format!("Transcription task failed: {}", e))?
-        .map_err(|e| format!("Transcription failed: {}", e))?
-    } else {
-        voice::transcribe_audio_http(&config.whisper_server_url, &samples, sample_rate)
-            .await
-            .map_err(|e| format!("Transcription failed: {}", e))?
-    };
+        .map_err(|e| format!("Transcription failed: {}", e))?;
 
     if cancel.is_cancelled() { return Err("interrupted".to_string()); }
 

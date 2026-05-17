@@ -26,7 +26,7 @@ The app lives in the system tray — no dock icon, no window on launch. Just a f
 │  macOS System Tray                                      │
 │  ┌───────────────────────────────────┐                  │
 │  │  Tauri (Rust backend)             │                  │
-│  │  ├── whisper-rs (native STT)      │                  │
+│  │  ├── Whisper client (HTTP STT)    │                  │
 │  │  ├── cpal (mic recording)         │                  │
 │  │  ├── Ollama client (LLM + tools)  │                  │
 │  │  ├── TTS client (Piper, HTTP)     │                  │
@@ -128,7 +128,7 @@ The UI is a frameless transparent window with a glowing orb at the bottom-right 
 Accessible from the system tray menu. Three tabs:
 
 ### Config
-- **Whisper Model Path** — path to a GGML whisper model file (e.g. `ggml-base.en.bin`)
+- **Whisper Server URL** — HTTP endpoint of the Whisper STT server (default `http://127.0.0.1:8350`)
 - **Ollama URL** — where Ollama is running (default `http://localhost:11434`)
 - **Chat Model** — Ollama model for conversation (e.g. `qwen3:4b`)
 - **Embedding Model** — for RAG vector embeddings (e.g. `nomic-embed-text`)
@@ -154,13 +154,9 @@ All settings persist to `~/Library/Application Support/voice-assistant/config.js
   ollama pull llava              # vision (for screenshots)
   ```
 - **TTS server** running with an OpenAI-compatible `/v1/audio/speech` endpoint (default: Piper on port 8005)
-- **Whisper GGML model** downloaded:
-  ```bash
-  mkdir -p ~/.cache/whisper
-  curl -L -o ~/.cache/whisper/ggml-base.en.bin \
-    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-  ```
-- **macOS** (uses `screencapture`, `pbpaste`, `open`, AppleScript)
+- **Whisper STT server** running with a `POST /transcribe` endpoint that accepts raw float32 PCM @ 16 kHz (default port 8350)
+
+All three services are typically managed by the separate `voice-assistant-stack` project.
 
 ## Build & Run
 
@@ -177,9 +173,9 @@ cargo tauri build
 
 ### Build Notes
 
-- Requires `CMAKE_OSX_DEPLOYMENT_TARGET=11.0` for whisper-rs (handled via `src-tauri/.cargo/config.toml`)
-- First build compiles whisper.cpp and SQLite from source — takes a few minutes
+- First build compiles SQLite from source — takes a minute or two
 - `macOSPrivateApi: true` is required in `tauri.conf.json` for transparent windows
+- On Linux, `cpal` needs ALSA headers; `scripts/dev-linux.sh` sets the necessary env vars if you keep ALSA in `~/.cache/dexter-deps/`
 
 ## Tech Stack
 
@@ -188,7 +184,7 @@ cargo tauri build
 | App framework | Tauri 2 |
 | Backend | Rust |
 | Frontend | React 19 + TypeScript + Vite |
-| STT | whisper-rs (native, no server) |
+| STT | Whisper (HTTP, e.g. faster-whisper server) |
 | LLM | Ollama (local, streaming, tool calling) |
 | TTS | Piper (self-hosted, OpenAI-compatible `/v1/audio/speech`) |
 | Audio capture | cpal |
