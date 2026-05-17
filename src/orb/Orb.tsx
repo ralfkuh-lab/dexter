@@ -20,7 +20,17 @@ export function Orb() {
   const [textInputVisible, setTextInputVisible] = useState<boolean>(false);
   const [textInput, setTextInput] = useState<string>("");
   const bubblesEndRef = useRef<HTMLDivElement>(null);
-  const textInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
+
+  /// Höhe an Inhalt anpassen — wächst bis ~5 Zeilen, danach scrollt das
+  /// Textarea intern.
+  const autoresizeTextarea = () => {
+    const el = textInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const max = 5 * 20 + 16; // ~5 Zeilen + Padding
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  };
 
   useEffect(() => {
     const load = () => {
@@ -237,6 +247,7 @@ export function Orb() {
     const text = textInput.trim();
     if (!text) return;
     setTextInput("");
+    if (textInputRef.current) textInputRef.current.style.height = "auto";
     stopAllAudio();
     setStage("thinking");
     try {
@@ -288,6 +299,30 @@ export function Orb() {
         )}
         <div ref={bubblesEndRef} />
       </div>
+
+      {textInputVisible && (
+        <div className="shrink-0 px-2 pt-1 pb-1">
+          <textarea
+            ref={textInputRef}
+            value={textInput}
+            onChange={(e) => {
+              setTextInput(e.target.value);
+              autoresizeTextarea();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submitText();
+              } else if (e.key === "Escape") {
+                setTextInputVisible(false);
+              }
+            }}
+            rows={1}
+            placeholder="Nachricht … (Enter senden, Shift+Enter Zeilenumbruch)"
+            className="block w-full px-3 py-2 text-sm rounded-md bg-white/5 text-white placeholder-white/30 border border-white/10 focus:outline-none focus:border-white/30 focus:bg-white/10 resize-none overflow-y-auto leading-5"
+          />
+        </div>
+      )}
 
       {showStats && <StatsBar model={model} ctxMax={ctxMax} stats={stats} />}
 
@@ -350,26 +385,6 @@ export function Orb() {
         </div>
       </div>
 
-      {textInputVisible && (
-        <div className="shrink-0 px-2 pb-3">
-          <input
-            ref={textInputRef}
-            type="text"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submitText();
-              } else if (e.key === "Escape") {
-                setTextInputVisible(false);
-              }
-            }}
-            placeholder="Nachricht eingeben (Enter zum Senden) …"
-            className="w-full px-3 py-2 text-sm rounded-md bg-white/5 text-white placeholder-white/30 border border-white/10 focus:outline-none focus:border-white/30 focus:bg-white/10"
-          />
-        </div>
-      )}
     </div>
   );
 }
