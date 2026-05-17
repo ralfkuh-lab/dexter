@@ -50,6 +50,7 @@ interface VoiceConfig {
   tools: ToolsConfig;
   sandbox: SandboxConfig;
   window: WindowConfig;
+  hotkey: string;
 }
 
 interface AudioChunk {
@@ -122,6 +123,22 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
             }
           />
         </Field>
+      </FieldGroup>
+
+      <FieldGroup title="Push-to-Talk">
+        <Field label="Hotkey (hold to talk)">
+          <Input
+            value={config.hotkey}
+            onChange={(v) => setConfig({ ...config, hotkey: v })}
+            placeholder="F9"
+          />
+        </Field>
+        <div className="text-[11px] text-white/40 leading-snug -mt-1">
+          Tauri-Accelerator-Syntax, z.B. <code>F9</code>, <code>Super+F9</code>,{" "}
+          <code>Control+Alt+Space</code>. Funktionstasten und nicht-textproduzierende
+          Kombinationen vermeiden, dass die Taste zusätzlich ins fokussierte
+          Textfeld rutscht.
+        </div>
       </FieldGroup>
 
       <FieldGroup title="Debug">
@@ -555,7 +572,19 @@ function Orb() {
   const [stage, setStage] = useState("idle");
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
   const [mouseRecording, setMouseRecording] = useState(false);
+  const [hotkey, setHotkey] = useState<string>("F9");
   const bubblesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const load = () => {
+      invoke<VoiceConfig>("get_config")
+        .then((c) => setHotkey(c.hotkey || "F9"))
+        .catch(() => {});
+    };
+    load();
+    const un = listen("config_changed", load);
+    return () => { un.then((fn) => fn()); };
+  }, []);
 
   const audioQueueRef = useRef<{ index: number; url: string }[]>([]);
   const isPlayingRef = useRef(false);
@@ -768,7 +797,7 @@ function Orb() {
       <div className="flex justify-center pb-5 pt-2 shrink-0">
         <div
           className={`${orbClass} relative w-20 h-20 cursor-pointer select-none`}
-          title="Hold to talk"
+          title={`Hold ${hotkey} to talk`}
           onPointerDown={(e) => {
             e.currentTarget.setPointerCapture(e.pointerId);
             beginManualRecording();

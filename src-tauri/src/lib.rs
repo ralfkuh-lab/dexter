@@ -125,6 +125,8 @@ fn default_user_prompt() -> String {
 fn default_window_width() -> f64 { 380.0 }
 fn default_window_height() -> f64 { 420.0 }
 
+fn default_hotkey() -> String { "F9".to_string() }
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WindowConfig {
     #[serde(default)]
@@ -179,6 +181,8 @@ pub struct VoiceConfig {
     pub sandbox: sandbox::SandboxConfig,
     #[serde(default)]
     pub window: WindowConfig,
+    #[serde(default = "default_hotkey")]
+    pub hotkey: String,
 }
 
 impl Default for VoiceConfig {
@@ -197,6 +201,7 @@ impl Default for VoiceConfig {
             tools: ToolsConfig::default(),
             sandbox: sandbox::SandboxConfig::default(),
             window: WindowConfig::default(),
+            hotkey: default_hotkey(),
         }
     }
 }
@@ -262,7 +267,19 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: Voic
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_decorations(config.window.decorations);
     }
+
+    let old_hotkey = { state.config.lock().unwrap().hotkey.clone() };
+    if old_hotkey != config.hotkey {
+        let _ = app.global_shortcut().unregister(old_hotkey.as_str());
+        if let Err(e) = register_ptt_shortcut(&app, &config.hotkey) {
+            eprintln!("Failed to register hotkey {:?}: {}", config.hotkey, e);
+            // Fall back to old hotkey so the user isn't left without PTT.
+            let _ = register_ptt_shortcut(&app, &old_hotkey);
+        }
+    }
+
     *state.config.lock().unwrap() = config;
+    let _ = app.emit("config_changed", ());
 }
 
 #[tauri::command]
@@ -278,6 +295,95 @@ fn clear_messages(state: tauri::State<AppState>) {
 #[tauri::command]
 fn show_window(app: tauri::AppHandle) {
     reveal_main_window(&app, true);
+}
+
+fn handle_ptt_press(app: &tauri::AppHandle) {
+    {
+        let state = app.state::<AppState>();
+        let mut cancel = state.pipeline_cancel.lock().unwrap();
+        cancel.cancel();
+        *cancel = CancellationToken::new();
+    }
+
+    let _ = app.emit("pipeline_interrupted", ());
+    reveal_main_window(app, false);
+    let _ = app.emit("hotkey_pressed", ());
+
+    let state = app.state::<AppState>();
+    let is_rec = *state.is_recording.lock().unwrap();
+    if !is_rec {
+        state.recorded_samples.lock().unwrap().clear();
+        *state.is_recording.lock().unwrap() = true;
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = voice::record_audio(&app_clone) {
+                eprintln!("Recording error: {}", e);
+            }
+        });
+    }
+}
+
+fn handle_ptt_release(app: &tauri::AppHandle) {
+    let _ = app.emit("hotkey_released", ());
+
+    let state = app.state::<AppState>();
+    *state.is_recording.lock().unwrap() = false;
+    let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
+
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let state = app_clone.state::<AppState>();
+        let samples = state.recorded_samples.lock().unwrap().clone();
+        let sample_rate = *state.recording_sample_rate.lock().unwrap();
+        let config = state.config.lock().unwrap().clone();
+
+        if samples.is_empty() {
+            let _ = app_clone.emit(
+                "processing",
+                ProcessingState {
+                    stage: "error".to_string(),
+                    text: "No audio recorded".to_string(),
+                },
+            );
+            return;
+        }
+
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = process_pipeline(
+                app_clone.clone(),
+                samples,
+                sample_rate,
+                config,
+                cancel_token,
+            )
+            .await
+            {
+                if e != "interrupted" {
+                    eprintln!("Pipeline error: {}", e);
+                    let _ = app_clone.emit(
+                        "processing",
+                        ProcessingState {
+                            stage: "error".to_string(),
+                            text: e,
+                        },
+                    );
+                }
+            }
+        });
+    });
+}
+
+fn register_ptt_shortcut(
+    app: &tauri::AppHandle,
+    shortcut: &str,
+) -> Result<(), tauri_plugin_global_shortcut::Error> {
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _shortcut, event| match event.state {
+            ShortcutState::Pressed => handle_ptt_press(app),
+            ShortcutState::Released => handle_ptt_release(app),
+        })
 }
 
 #[tauri::command]
@@ -1024,7 +1130,10 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .tooltip("Voice Assistant — Hold Super+Y to talk")
+                .tooltip(format!(
+                    "Voice Assistant — Hold {} to talk",
+                    app.state::<AppState>().config.lock().unwrap().hotkey
+                ))
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
@@ -1065,97 +1174,15 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Register global shortcut in Rust so it works when window is hidden
-            app.global_shortcut()
-                .on_shortcut("Super+Y", |app, _shortcut, event| {
-                    match event.state {
-                        ShortcutState::Pressed => {
-                            // Cancel any running pipeline first
-                            {
-                                let state = app.state::<AppState>();
-                                let mut cancel = state.pipeline_cancel.lock().unwrap();
-                                cancel.cancel(); // signal the running pipeline to stop
-                                *cancel = CancellationToken::new(); // fresh token for next pipeline
-                            }
-
-                            // Tell frontend to stop audio and reset
-                            let _ = app.emit("pipeline_interrupted", ());
-
-                            // Show window at bottom-right and start recording
-                            reveal_main_window(app, false);
-                            let _ = app.emit("hotkey_pressed", ());
-
-                            // Start recording
-                            let state = app.state::<AppState>();
-                            let is_rec = *state.is_recording.lock().unwrap();
-                            if !is_rec {
-                                state.recorded_samples.lock().unwrap().clear();
-                                *state.is_recording.lock().unwrap() = true;
-                                let app_clone = app.clone();
-                                std::thread::spawn(move || {
-                                    if let Err(e) = voice::record_audio(&app_clone) {
-                                        eprintln!("Recording error: {}", e);
-                                    }
-                                });
-                            }
-                        }
-                        ShortcutState::Released => {
-                            let _ = app.emit("hotkey_released", ());
-
-                            // Stop recording and process
-                            let state = app.state::<AppState>();
-                            *state.is_recording.lock().unwrap() = false;
-
-                            // Grab the current cancel token for this pipeline
-                            let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
-
-                            let app_clone = app.clone();
-                            // Small delay to let recording thread finish, then process
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-
-                                let state = app_clone.state::<AppState>();
-                                let samples = state.recorded_samples.lock().unwrap().clone();
-                                let sample_rate = *state.recording_sample_rate.lock().unwrap();
-                                let config = state.config.lock().unwrap().clone();
-
-                                if samples.is_empty() {
-                                    let _ = app_clone.emit(
-                                        "processing",
-                                        ProcessingState {
-                                            stage: "error".to_string(),
-                                            text: "No audio recorded".to_string(),
-                                        },
-                                    );
-                                    return;
-                                }
-
-                                tauri::async_runtime::spawn(async move {
-                                    if let Err(e) = process_pipeline(
-                                        app_clone.clone(),
-                                        samples,
-                                        sample_rate,
-                                        config,
-                                        cancel_token,
-                                    )
-                                    .await
-                                    {
-                                        if e != "interrupted" {
-                                            eprintln!("Pipeline error: {}", e);
-                                            let _ = app_clone.emit(
-                                                "processing",
-                                                ProcessingState {
-                                                    stage: "error".to_string(),
-                                                    text: e,
-                                                },
-                                            );
-                                        }
-                                    }
-                                });
-                            });
-                        }
-                    }
-                })?;
+            // Register global PTT shortcut from config so it works when window is hidden
+            let initial_hotkey = app
+                .state::<AppState>()
+                .config
+                .lock()
+                .unwrap()
+                .hotkey
+                .clone();
+            register_ptt_shortcut(app.handle(), &initial_hotkey)?;
 
 // Hide dock icon on macOS
             #[cfg(target_os = "macos")]
