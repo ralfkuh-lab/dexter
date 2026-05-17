@@ -37,8 +37,8 @@ interface VoiceConfig {
   llm_model: string;
   embed_model: string;
   vision_model: string;
-  chatterbox_url: string;
-  chatterbox_voice: string;
+  tts_url: string;
+  tts_voice: string;
   system_prompt: string;
   tools: ToolsConfig;
   sandbox: SandboxConfig;
@@ -100,11 +100,11 @@ function ConfigTab({ config, setConfig }: { config: VoiceConfig; setConfig: (c: 
       </FieldGroup>
 
       <FieldGroup title="Text-to-Speech">
-        <Field label="Chatterbox URL">
-          <Input value={config.chatterbox_url} onChange={(v) => setConfig({ ...config, chatterbox_url: v })} />
+        <Field label="TTS Server URL">
+          <Input value={config.tts_url} onChange={(v) => setConfig({ ...config, tts_url: v })} placeholder="http://127.0.0.1:8005" />
         </Field>
         <Field label="Voice">
-          <Input value={config.chatterbox_voice} onChange={(v) => setConfig({ ...config, chatterbox_voice: v })} />
+          <Input value={config.tts_voice} onChange={(v) => setConfig({ ...config, tts_voice: v })} placeholder="de_DE-thorsten-medium" />
         </Field>
       </FieldGroup>
 

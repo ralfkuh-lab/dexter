@@ -2,19 +2,19 @@
 
 A local, privacy-first desktop voice assistant for macOS. Hold a hotkey, speak, and get a spoken response — all running on your machine.
 
-Built with **Tauri 2** (Rust + React), powered by **Whisper** (STT) + **Ollama** (LLM) + **Chatterbox** (TTS).
+Built with **Tauri 2** (Rust + React). Speaks to local **Whisper** (STT), **Ollama / llama.cpp** (LLM) and **Piper** (TTS) over HTTP. The actual model servers live in a separate stack project (e.g. `voice-assistant-stack`).
 
 ## How It Works
 
 ```
-You speak ──► Whisper transcribes ──► Ollama thinks ──► Chatterbox speaks back
-               (local STT)            (local LLM)         (local TTS)
+You speak ──► Whisper transcribes ──► LLM thinks ──► Piper speaks back
+               (HTTP STT)              (HTTP LLM)     (HTTP TTS)
 ```
 
 1. **Hold Shift+Z** — the orb appears and starts listening
-2. **Release** — your speech is transcribed via Whisper (runs natively in Rust, no server needed)
-3. **Ollama generates a response** — streamed sentence-by-sentence for low latency
-4. **Each sentence is sent to Chatterbox TTS** — audio plays back sequentially as chunks arrive
+2. **Release** — audio is sent to the Whisper HTTP server for transcription
+3. **The LLM generates a response** — streamed sentence-by-sentence for low latency
+4. **Each sentence is sent to the TTS server** — audio plays back sequentially as chunks arrive
 5. **Press Shift+X** to dismiss the window
 
 The app lives in the system tray — no dock icon, no window on launch. Just a floating orb that appears when you talk.
@@ -29,7 +29,7 @@ The app lives in the system tray — no dock icon, no window on launch. Just a f
 │  │  ├── whisper-rs (native STT)      │                  │
 │  │  ├── cpal (mic recording)         │                  │
 │  │  ├── Ollama client (LLM + tools)  │                  │
-│  │  ├── Chatterbox client (TTS)      │                  │
+│  │  ├── TTS client (Piper, HTTP)     │                  │
 │  │  ├── RAG store (SQLite + embeds)  │                  │
 │  │  └── Tool executors               │                  │
 │  └───────────────┬───────────────────┘                  │
@@ -49,7 +49,7 @@ The response doesn't wait for the full LLM output. Instead:
 
 1. Ollama streams tokens
 2. Sentence boundary detection splits the stream (on `.` `!` `?` followed by whitespace)
-3. Each complete sentence is immediately sent to Chatterbox for TTS
+3. Each complete sentence is immediately sent to the TTS server (Piper) for synthesis
 4. Audio chunks are emitted to the frontend with an index
 5. The frontend queues chunks and plays them in order
 
@@ -133,8 +133,8 @@ Accessible from the system tray menu. Three tabs:
 - **Chat Model** — Ollama model for conversation (e.g. `qwen3:4b`)
 - **Embedding Model** — for RAG vector embeddings (e.g. `nomic-embed-text`)
 - **Vision Model** — for screenshot description (e.g. `llava`)
-- **Chatterbox URL** — TTS server address
-- **Voice** — voice file name on the Chatterbox server
+- **TTS Server URL** — OpenAI-compatible `/v1/audio/speech` endpoint (e.g. Piper on `http://127.0.0.1:8005`)
+- **Voice** — voice name on the TTS server (e.g. `de_DE-thorsten-medium`)
 - **System Prompt** — personality and behavior instructions
 
 ### Tools
@@ -153,7 +153,7 @@ All settings persist to `~/Library/Application Support/voice-assistant/config.js
   ollama pull nomic-embed-text   # embeddings (for RAG)
   ollama pull llava              # vision (for screenshots)
   ```
-- **Chatterbox TTS** server running (OpenAI-compatible `/v1/audio/speech` endpoint)
+- **TTS server** running with an OpenAI-compatible `/v1/audio/speech` endpoint (default: Piper on port 8005)
 - **Whisper GGML model** downloaded:
   ```bash
   mkdir -p ~/.cache/whisper
@@ -190,7 +190,7 @@ cargo tauri build
 | Frontend | React 19 + TypeScript + Vite |
 | STT | whisper-rs (native, no server) |
 | LLM | Ollama (local, streaming, tool calling) |
-| TTS | Chatterbox (self-hosted, OpenAI-compatible) |
+| TTS | Piper (self-hosted, OpenAI-compatible `/v1/audio/speech`) |
 | Audio capture | cpal |
 | Vector store | SQLite + Ollama embeddings |
 | Global hotkeys | tauri-plugin-global-shortcut |
@@ -205,7 +205,7 @@ voice-assistant/
 ├── src-tauri/
 │   ├── src/
 │   │   ├── lib.rs       # Tauri setup, tray, hotkeys, pipeline orchestration
-│   │   ├── voice.rs     # Whisper STT, Ollama streaming, Chatterbox TTS, tool defs
+│   │   ├── voice.rs     # Whisper STT, LLM streaming, TTS, tool defs
 │   │   ├── tools.rs     # Tool implementations (screenshot, clipboard, etc.)
 │   │   └── rag.rs       # RAG store — chunking, embedding, SQLite vector search
 │   ├── Cargo.toml

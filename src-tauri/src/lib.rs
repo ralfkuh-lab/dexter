@@ -107,6 +107,14 @@ fn default_whisper_server_url() -> String {
     "http://127.0.0.1:8350".to_string()
 }
 
+fn default_tts_url() -> String {
+    "http://127.0.0.1:8005".to_string()
+}
+
+fn default_tts_voice() -> String {
+    "de_DE-thorsten-medium".to_string()
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VoiceConfig {
     pub whisper_model_path: String,
@@ -124,8 +132,10 @@ pub struct VoiceConfig {
     pub embed_model: String,
     #[serde(default)]
     pub vision_model: String,
-    pub chatterbox_url: String,
-    pub chatterbox_voice: String,
+    #[serde(default = "default_tts_url", alias = "chatterbox_url")]
+    pub tts_url: String,
+    #[serde(default = "default_tts_voice", alias = "chatterbox_voice")]
+    pub tts_voice: String,
     pub system_prompt: String,
     #[serde(default)]
     pub tools: ToolsConfig,
@@ -151,9 +161,9 @@ impl Default for VoiceConfig {
             llm_model: default_llm_model(),
             embed_model: String::new(),
             vision_model: String::new(),
-            chatterbox_url: "http://localhost:8005".to_string(),
-            chatterbox_voice: "Anirban.wav".to_string(),
-            system_prompt: "You are a voice assistant running on the user's desktop. The conversation happens entirely through voice — the user speaks into their microphone, their speech is transcribed to text via Whisper (STT), sent to you as a message, and your response is converted back to speech via Chatterbox Turbo (TTS) and played through their speakers. You can hear them and they can hear you — treat this as a natural spoken conversation. If they ask \"can you hear me\" the answer is yes.\n\nKeep responses concise and conversational — 2-3 sentences max. No markdown, no code blocks, no bullet points, no numbered lists, no special formatting. Write exactly as you would speak out loud. Avoid colons in your responses as they cause unnatural pauses in TTS.\n\nYou can express emotions naturally using these paralinguistic tags inline with your speech — use them sparingly and only when they genuinely fit the moment:\n[laugh] [chuckle] [sigh] [gasp] [cough] [clear throat] [sniff] [groan] [shush]\nExample — \"Oh wow, that's actually hilarious [laugh] I didn't expect that at all.\"\nDo NOT overuse them. Most responses need zero tags. Only use them when a human would genuinely make that sound.\n\nWhen you decide to use a tool, ALWAYS say what you're about to do first in a short natural sentence before calling the tool. For example — \"Let me take a look at your screen\" before taking a screenshot, \"Let me search the web for that\" before fetching a page, \"Let me check the time\" before getting the time, \"One sec, let me run that command\" before executing a shell command. This way the user hears what's happening instead of waiting in silence.".to_string(),
+            tts_url: default_tts_url(),
+            tts_voice: default_tts_voice(),
+            system_prompt: "You are a voice assistant running on the user's desktop. The conversation happens entirely through voice — the user speaks into their microphone, their speech is transcribed to text via Whisper (STT), sent to you as a message, and your response is converted back to speech via a local TTS engine and played through their speakers. You can hear them and they can hear you — treat this as a natural spoken conversation. If they ask \"can you hear me\" the answer is yes.\n\nKeep responses concise and conversational — 2-3 sentences max. No markdown, no code blocks, no bullet points, no numbered lists, no special formatting. Write exactly as you would speak out loud. Avoid colons in your responses as they cause unnatural pauses in TTS.\n\nWhen you decide to use a tool, ALWAYS say what you're about to do first in a short natural sentence before calling the tool. For example — \"Let me take a look at your screen\" before taking a screenshot, \"Let me search the web for that\" before fetching a page, \"Let me check the time\" before getting the time, \"One sec, let me run that command\" before executing a shell command. This way the user hears what's happening instead of waiting in silence.".to_string(),
             tools: ToolsConfig::default(),
             sandbox: sandbox::SandboxConfig::default(),
         }

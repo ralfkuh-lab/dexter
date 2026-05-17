@@ -886,13 +886,12 @@ fn find_sentence_end(text: &str) -> Option<usize> {
     None
 }
 
-// ── Chatterbox TTS ──
+// ── TTS (OpenAI-compatible /v1/audio/speech) ──
 
 #[derive(Serialize)]
-struct ChatterboxRequest {
+struct TtsRequest {
     input: String,
     voice: String,
-    model: String,
 }
 
 pub async fn synthesize(
@@ -903,14 +902,13 @@ pub async fn synthesize(
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
 
-    let request = ChatterboxRequest {
+    let request = TtsRequest {
         input: text.to_string(),
-        voice: config.chatterbox_voice.clone(),
-        model: "chatterbox".to_string(),
+        voice: config.tts_voice.clone(),
     };
 
     let resp = client
-        .post(format!("{}/v1/audio/speech", config.chatterbox_url))
+        .post(format!("{}/v1/audio/speech", trim_base_url(&config.tts_url)))
         .json(&request)
         .send()
         .await?;
@@ -918,7 +916,7 @@ pub async fn synthesize(
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Chatterbox API error {}: {}", status, body).into());
+        return Err(format!("TTS API error {}: {}", status, body).into());
     }
 
     let audio_bytes = resp.bytes().await?;
