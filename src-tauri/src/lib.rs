@@ -1007,7 +1007,7 @@ pub fn run() {
         })
         .setup(|app| {
             // Build tray menu
-            let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
+            let show_item = MenuItemBuilder::with_id("show", "Show/Hide Window").build(app)?;
             let settings_item = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
             let clear_item = MenuItemBuilder::with_id("clear", "Clear Chat").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -1024,10 +1024,18 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .tooltip("Voice Assistant — Hold Shift+Z to talk")
+                .tooltip("Voice Assistant — Hold Super+Y to talk")
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "show" => {
-                        reveal_main_window(app, true);
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                reveal_main_window(app, true);
+                            }
+                        } else {
+                            reveal_main_window(app, true);
+                        }
                     }
                     "settings" => {
                         // If settings window already exists, just focus it
@@ -1059,7 +1067,7 @@ pub fn run() {
 
             // Register global shortcut in Rust so it works when window is hidden
             app.global_shortcut()
-                .on_shortcut("Shift+Z", |app, _shortcut, event| {
+                .on_shortcut("Super+Y", |app, _shortcut, event| {
                     match event.state {
                         ShortcutState::Pressed => {
                             // Cancel any running pipeline first
@@ -1149,17 +1157,7 @@ pub fn run() {
                     }
                 })?;
 
-            // Register Shift+X to hide/dismiss the window
-            app.global_shortcut()
-                .on_shortcut("Shift+X", |app, _shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.hide();
-                        }
-                    }
-                })?;
-
-            // Hide dock icon on macOS
+// Hide dock icon on macOS
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
