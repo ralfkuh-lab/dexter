@@ -391,7 +391,7 @@ pub fn build_tools(tools_config: &crate::ToolsConfig) -> Vec<serde_json::Value> 
             "type": "function",
             "function": {
                 "name": "read_clipboard",
-                "description": "Read the current text contents of the user's clipboard. Use this when the user says they copied something, or asks about what's in their clipboard.",
+                "description": "Read the current text contents of the user's clipboard. Use this when the user says they copied something, or asks about what's in their clipboard. The clipboard changes constantly — ALWAYS call this fresh every time it is referenced; never reuse a previous result from earlier in the conversation, even if you just called it moments ago.",
                 "parameters": {
                     "type": "object",
                     "properties": {}
@@ -425,7 +425,7 @@ pub fn build_tools(tools_config: &crate::ToolsConfig) -> Vec<serde_json::Value> 
             "type": "function",
             "function": {
                 "name": "get_current_time",
-                "description": "Get the current date, time, and day of week. Use when the user asks what time or date it is.",
+                "description": "Get the current date, time, and day of week. Use when the user asks what time or date it is. Time advances continuously — ALWAYS call this fresh every time the user asks; never reuse a previous result, even if you just answered a time question seconds ago.",
                 "parameters": {
                     "type": "object",
                     "properties": {}
