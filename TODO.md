@@ -4,15 +4,11 @@ Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
 
 ## Linux-Lücken (aktuell nur Stub oder kaputt)
 
-- [ ] **Screenshot-Tool tut auf Linux nichts.** `tools.rs:64` gibt nur
-  „not implemented for this platform" zurück. Backend bauen:
-  Wayland (XDG-Desktop-Portal `org.freedesktop.portal.Screenshot`) primär,
-  `grim`/`slurp` als wlroots-Fallback, X11 via `xwd` oder native crate.
-  Output-Contract identisch zur macOS-Variante: base64 JPEG, max 1280px,
-  Qualität ~70.
-
 - [ ] **Active-Monitor-Detection auf Linux.** macOS hat das Python/Quartz-
-  Snippet. Auf Linux Multi-Monitor erstmal Monitor 0 nehmen, später besser.
+  Snippet. Linux-Screenshot nimmt aktuell den ganzen virtuellen Desktop
+  (Default des aufgerufenen Tools). Multi-Monitor-Auswahl wäre per
+  `grim -o <output>` (Wayland) bzw. `xrandr`-Geometrie + `import -window`
+  oder Crop nach dem Capture machbar.
 
 ## Aufräumen / kleine Refactorings
 

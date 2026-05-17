@@ -60,7 +60,97 @@ pub fn take_screenshot(monitor: Option<u32>) -> Result<String, String> {
     Ok(STANDARD.encode(&bytes))
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Linux-Screenshot: probiert mehrere DE-übliche Tools, da es keine
+/// universelle API gibt. Reihenfolge: `grim` (Wayland-wlroots) → DE-eigene
+/// Tools (gnome-screenshot, spectacle) → X11-Fallbacks (scrot, maim, import).
+/// Multi-Monitor wird ignoriert — wir nehmen, was das Tool als Default liefert
+/// (üblicherweise der gesamte virtuelle Desktop).
+#[cfg(target_os = "linux")]
+pub fn take_screenshot(_monitor: Option<u32>) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let tmp_raw = std::env::temp_dir().join("voice-assistant-screenshot-raw.png");
+    let raw_str = tmp_raw.to_string_lossy().to_string();
+    let _ = std::fs::remove_file(&tmp_raw);
+
+    let wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
+        || std::env::var("XDG_SESSION_TYPE").ok().as_deref() == Some("wayland");
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase();
+
+    let mut attempts: Vec<(&str, Vec<String>)> = Vec::new();
+    if wayland {
+        attempts.push(("grim", vec![raw_str.clone()]));
+    }
+    if desktop.contains("kde") || desktop.contains("plasma") {
+        attempts.push((
+            "spectacle",
+            vec!["-b".into(), "-n".into(), "-o".into(), raw_str.clone()],
+        ));
+    }
+    // gnome-screenshot funktioniert auf GNOME, Cinnamon, MATE, Unity (X11).
+    attempts.push(("gnome-screenshot", vec!["-f".into(), raw_str.clone()]));
+    if !wayland {
+        // Auf Wayland würde grim oben schon greifen; das hier ist die X11-Strecke.
+        attempts.push(("grim", vec![raw_str.clone()]));
+    }
+    attempts.push(("scrot", vec!["-o".into(), raw_str.clone()]));
+    attempts.push(("maim", vec![raw_str.clone()]));
+    attempts.push((
+        "import",
+        vec!["-window".into(), "root".into(), raw_str.clone()],
+    ));
+
+    let mut last_err = String::from("no screenshot tool found in PATH (tried grim, gnome-screenshot, spectacle, scrot, maim, import)");
+    let mut captured = false;
+    for (bin, args) in &attempts {
+        let result = Command::new(bin)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        match result {
+            Ok(status) if status.success() => {
+                if std::fs::metadata(&tmp_raw).map(|m| m.len() > 0).unwrap_or(false) {
+                    captured = true;
+                    break;
+                }
+                last_err = format!("{} exited 0 but wrote no file", bin);
+            }
+            Ok(status) => {
+                last_err = format!("{} exited with {}", bin, status);
+            }
+            Err(_) => {
+                // Binary fehlt — nächsten Kandidaten probieren.
+            }
+        }
+    }
+
+    if !captured {
+        return Err(last_err);
+    }
+
+    let img = image::open(&tmp_raw).map_err(|e| format!("Failed to decode screenshot: {}", e));
+    let _ = std::fs::remove_file(&tmp_raw);
+    let img = img?;
+
+    // Auf 1280 px längste Seite verkleinern (gleicher Vertrag wie macOS).
+    let resized = if img.width().max(img.height()) > 1280 {
+        img.resize(1280, 1280, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
+
+    let rgb = resized.to_rgb8();
+    let mut jpeg_bytes = Vec::new();
+    let encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 70);
+    rgb.write_with_encoder(encoder)
+        .map_err(|e| format!("JPEG encode failed: {}", e))?;
+
+    Ok(STANDARD.encode(&jpeg_bytes))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn take_screenshot(_monitor: Option<u32>) -> Result<String, String> {
     Err("Screenshot capture is not implemented for this platform yet.".to_string())
 }
