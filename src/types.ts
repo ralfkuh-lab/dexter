@@ -1,0 +1,83 @@
+export interface ProcessingState {
+  stage: string;
+  text: string;
+}
+
+export interface ToolsConfig {
+  search_knowledge: boolean;
+  screenshot: boolean;
+  read_clipboard: boolean;
+  open_url: boolean;
+  get_current_time: boolean;
+  list_apps: boolean;
+  run_command: boolean;
+  web_fetch: boolean;
+}
+
+export interface SandboxConfig {
+  mode: "Guarded" | "Docker";
+  timeout_secs: number;
+  readable_paths: string[];
+  workspace: string;
+  docker_image: string;
+  allow_network: boolean;
+}
+
+export interface WindowConfig {
+  decorations: boolean;
+  width: number;
+  height: number;
+  x: number | null;
+  y: number | null;
+}
+
+export interface VoiceConfig {
+  whisper_server_url: string;
+  llm_provider: string;
+  llm_base_url: string;
+  llm_model: string;
+  embed_model: string;
+  vision_model: string;
+  tts_url: string;
+  tts_voice: string;
+  debug_bubbles: boolean;
+  system_prompt: string;
+  tools: ToolsConfig;
+  sandbox: SandboxConfig;
+  window: WindowConfig;
+  hotkey: string;
+  show_stats: boolean;
+}
+
+export interface LlmStats {
+  ttft_ms: number | null;
+  tokens_per_sec: number | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  ctx_max: number | null;
+  model: string | null;
+}
+
+export interface AudioChunk {
+  index: number;
+  audio: string;
+}
+
+export interface ChatBubble {
+  role: "user" | "assistant" | "status" | "tool" | "debug";
+  text: string;
+  id: number;
+}
+
+export type SettingsTab = "config" | "prompt" | "tools" | "knowledge";
+
+export const TOOL_LABEL_MAP: Record<string, string> = {
+  take_screenshot: "Taking screenshot",
+  search_knowledge: "Searching knowledge",
+  read_clipboard: "Reading clipboard",
+  open_url: "Opening URL",
+  get_current_time: "Checking time",
+  list_running_apps: "Listing apps",
+  run_command: "Running command",
+  web_fetch: "Fetching web page",
+};
