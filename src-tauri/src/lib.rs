@@ -41,11 +41,17 @@ pub fn run() {
         .setup(|app| {
             let show_item = MenuItemBuilder::with_id("show", "Show/Hide Window").build(app)?;
             let settings_item = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
+            let text_input_item =
+                MenuItemBuilder::with_id("text_input", "Text-Eingabe …").build(app)?;
+            let tts_toggle_item =
+                MenuItemBuilder::with_id("tts_toggle", "Sprachausgabe umschalten").build(app)?;
             let clear_item = MenuItemBuilder::with_id("clear", "Clear Chat").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
             let menu = MenuBuilder::new(app)
                 .item(&show_item)
+                .item(&text_input_item)
+                .item(&tts_toggle_item)
                 .item(&settings_item)
                 .item(&clear_item)
                 .separator()
@@ -84,6 +90,21 @@ pub fn run() {
                                 .resizable(true)
                                 .build();
                         }
+                    }
+                    "text_input" => {
+                        window::reveal_main_window(app);
+                        let _ = app.emit("focus_text_input", ());
+                    }
+                    "tts_toggle" => {
+                        let new_value = {
+                            let state = app.state::<AppState>();
+                            let mut cfg = state.config.lock().unwrap();
+                            cfg.tts_enabled = !cfg.tts_enabled;
+                            cfg.save();
+                            cfg.tts_enabled
+                        };
+                        let _ = app.emit("config_changed", ());
+                        let _ = app.emit("tts_toggled", new_value);
                     }
                     "clear" => {
                         let state = app.state::<AppState>();
@@ -181,6 +202,8 @@ pub fn run() {
             commands::delete_knowledge_source,
             commands::start_recording,
             commands::stop_recording_and_process,
+            commands::set_tts_enabled,
+            commands::submit_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

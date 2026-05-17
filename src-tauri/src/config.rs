@@ -146,6 +146,8 @@ pub struct VoiceConfig {
     pub hotkey: String,
     #[serde(default = "default_true")]
     pub show_stats: bool,
+    #[serde(default = "default_true")]
+    pub tts_enabled: bool,
 }
 
 impl Default for VoiceConfig {
@@ -166,6 +168,7 @@ impl Default for VoiceConfig {
             window: WindowConfig::default(),
             hotkey: default_hotkey(),
             show_stats: true,
+            tts_enabled: true,
         }
     }
 }

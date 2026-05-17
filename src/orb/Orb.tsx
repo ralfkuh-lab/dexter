@@ -16,7 +16,11 @@ export function Orb() {
   const [model, setModel] = useState<string>("");
   const [ctxMax, setCtxMax] = useState<number | null>(null);
   const [stats, setStats] = useState<LlmStats | null>(null);
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(true);
+  const [textInputVisible, setTextInputVisible] = useState<boolean>(false);
+  const [textInput, setTextInput] = useState<string>("");
   const bubblesEndRef = useRef<HTMLDivElement>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const load = () => {
@@ -25,6 +29,7 @@ export function Orb() {
           setHotkey(c.hotkey || "F9");
           setShowStats(c.show_stats !== false);
           setModel(c.llm_model || "");
+          setTtsEnabled(c.tts_enabled !== false);
         })
         .catch(() => {});
       invoke<number | null>("get_ctx_max")
@@ -204,6 +209,44 @@ export function Orb() {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
+  useEffect(() => {
+    const unlisten = listen("focus_text_input", () => {
+      setTextInputVisible(true);
+      // Defer focus until the input is in the DOM.
+      setTimeout(() => textInputRef.current?.focus(), 50);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  const toggleTts = () => {
+    const next = !ttsEnabled;
+    setTtsEnabled(next);
+    invoke("set_tts_enabled", { enabled: next }).catch(() => {});
+    if (!next) stopAllAudio();
+  };
+
+  const toggleTextInput = () => {
+    setTextInputVisible((v) => {
+      const next = !v;
+      if (next) setTimeout(() => textInputRef.current?.focus(), 50);
+      return next;
+    });
+  };
+
+  const submitText = async () => {
+    const text = textInput.trim();
+    if (!text) return;
+    setTextInput("");
+    stopAllAudio();
+    setStage("thinking");
+    try {
+      await invoke("submit_text", { text });
+    } catch (e) {
+      setStage("error");
+      addBubble("status", String(e));
+    }
+  };
+
   const orbClass = [
     "orb-container",
     stage === "listening" && "orb-listening",
@@ -248,8 +291,43 @@ export function Orb() {
 
       {showStats && <StatsBar model={model} ctxMax={ctxMax} stats={stats} />}
 
+      {/* Toolbar mit Lautsprecher- und Tastatur-Toggle */}
+      <div className="flex justify-end gap-1.5 px-1 pt-1 shrink-0">
+        <button
+          type="button"
+          onClick={toggleTts}
+          className={`p-1.5 rounded-md transition-colors ${ttsEnabled ? "text-white/70 hover:text-white/90 hover:bg-white/5" : "text-white/30 hover:text-white/50 hover:bg-white/5"}`}
+          title={ttsEnabled ? "Sprachausgabe an (klick zum Stummschalten)" : "Sprachausgabe aus (klick zum Aktivieren)"}
+        >
+          {ttsEnabled ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 5L6 9H2v6h4l5 4z" />
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 5L6 9H2v6h4l5 4z" />
+              <line x1="22" y1="9" x2="16" y2="15" />
+              <line x1="16" y1="9" x2="22" y2="15" />
+            </svg>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={toggleTextInput}
+          className={`p-1.5 rounded-md transition-colors ${textInputVisible ? "text-white/90 bg-white/5 hover:bg-white/10" : "text-white/50 hover:text-white/80 hover:bg-white/5"}`}
+          title="Texteingabe ein-/ausblenden"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="6" width="20" height="12" rx="2" />
+            <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+          </svg>
+        </button>
+      </div>
+
       {/* Orb */}
-      <div className="flex justify-center pb-5 pt-2 shrink-0">
+      <div className="flex justify-center pb-2 pt-1 shrink-0">
         <div
           className={`${orbClass} relative w-20 h-20 cursor-pointer select-none`}
           title={`Push to talk — hold orb or ${hotkey}`}
@@ -271,6 +349,27 @@ export function Orb() {
           <div className={`orb-ring absolute inset-[8%] rounded-full border-[1.5px] z-[3] ${ringAnim}`} />
         </div>
       </div>
+
+      {textInputVisible && (
+        <div className="shrink-0 px-2 pb-3">
+          <input
+            ref={textInputRef}
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitText();
+              } else if (e.key === "Escape") {
+                setTextInputVisible(false);
+              }
+            }}
+            placeholder="Nachricht eingeben (Enter zum Senden) …"
+            className="w-full px-3 py-2 text-sm rounded-md bg-white/5 text-white placeholder-white/30 border border-white/10 focus:outline-none focus:border-white/30 focus:bg-white/10"
+          />
+        </div>
+      )}
     </div>
   );
 }

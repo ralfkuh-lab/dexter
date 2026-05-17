@@ -122,6 +122,33 @@ pub async fn process_pipeline(
         return Err("No speech detected".to_string());
     }
 
+    run_llm_pipeline(app, transcript, config, cancel).await
+}
+
+/// Pipeline-Variante für Texteingabe: überspringt STT komplett, ruft den
+/// gemeinsamen LLM-/TTS-Kern direkt mit dem User-Text auf.
+pub async fn process_text_input(
+    app: tauri::AppHandle,
+    text: String,
+    config: VoiceConfig,
+    cancel: CancellationToken,
+) -> Result<(), String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("No text provided".to_string());
+    }
+    run_llm_pipeline(app, text, config, cancel).await
+}
+
+/// Gemeinsamer Kern: nimmt einen User-Text (egal ob aus STT oder Tastatur),
+/// hängt ihn an die Chat-Historie, fährt die LLM-Schleife mit Tools, streamt
+/// Sätze an TTS und gibt die Audio-Chunks ans Frontend.
+async fn run_llm_pipeline(
+    app: tauri::AppHandle,
+    transcript: String,
+    config: VoiceConfig,
+    cancel: CancellationToken,
+) -> Result<(), String> {
     app.emit(
         "processing",
         ProcessingState {
@@ -375,6 +402,18 @@ pub async fn process_pipeline(
             },
         )
         .map_err(|e: tauri::Error| e.to_string())?;
+
+        if !config.tts_enabled {
+            // Lautsprecher aus: Text läuft trotzdem satzweise in die Bubble,
+            // aber kein TTS-Roundtrip und keine Audio-Chunks. Wir warten kurz,
+            // damit die Bubble nicht in einem Frame "explodiert", sondern in
+            // gesprochenem Rhythmus mitläuft.
+            tokio::select! {
+                _ = cancel.cancelled() => { break; }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(120)) => {}
+            }
+            continue;
+        }
 
         let tts_result = tokio::select! {
             _ = cancel.cancelled() => { break; }

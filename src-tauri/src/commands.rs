@@ -2,10 +2,11 @@
 
 use crate::backend::{refresh_ctx_max, register_ptt_shortcut, warmup_llm_async};
 use crate::config::core_system_prompt;
-use crate::pipeline::process_pipeline;
+use crate::pipeline::{process_pipeline, process_text_input};
 use crate::state::ProcessingState;
 use crate::window::reveal_main_window;
 use crate::{voice, AppState, ChatMessage, VoiceConfig};
+use tokio_util::sync::CancellationToken;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
@@ -214,6 +215,62 @@ pub fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
     std::thread::spawn(move || {
         if let Err(e) = voice::record_audio(&app_handle) {
             eprintln!("Recording error: {}", e);
+        }
+    });
+
+    Ok(())
+}
+
+/// Wird vom Lautsprecher-Toggle (Orb-Icon und Tray-Menü) aufgerufen.
+/// Schreibt nur das eine Feld, ohne den Rest der Config über den Draht zu schicken.
+#[tauri::command]
+pub fn set_tts_enabled(app: tauri::AppHandle, state: tauri::State<AppState>, enabled: bool) {
+    {
+        let mut cfg = state.config.lock().unwrap();
+        if cfg.tts_enabled == enabled {
+            return;
+        }
+        cfg.tts_enabled = enabled;
+        cfg.save();
+    }
+    let _ = app.emit("config_changed", ());
+}
+
+/// Schickt einen vom User getippten Text in die LLM-Pipeline, als wäre er
+/// per STT angekommen. Bestehende Pipelines werden vorher abgebrochen, damit
+/// nicht zwei parallele LLM-Calls in dieselbe Bubble streamen.
+#[tauri::command]
+pub fn submit_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("No text provided".to_string());
+    }
+
+    let state = app.state::<AppState>();
+    let config = state.config.lock().unwrap().clone();
+    let cancel_token = {
+        let mut cancel = state.pipeline_cancel.lock().unwrap();
+        cancel.cancel();
+        *cancel = CancellationToken::new();
+        cancel.clone()
+    };
+    let _ = app.emit("pipeline_interrupted", ());
+
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) =
+            process_text_input(app_handle.clone(), text, config, cancel_token).await
+        {
+            if e != "interrupted" {
+                eprintln!("Text pipeline error: {}", e);
+                let _ = app_handle.emit(
+                    "processing",
+                    ProcessingState {
+                        stage: "error".to_string(),
+                        text: e,
+                    },
+                );
+            }
         }
     });
 

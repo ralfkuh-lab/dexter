@@ -47,6 +47,7 @@ export interface VoiceConfig {
   window: WindowConfig;
   hotkey: string;
   show_stats: boolean;
+  tts_enabled: boolean;
 }
 
 export interface LlmStats {

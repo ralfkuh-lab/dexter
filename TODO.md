@@ -26,21 +26,11 @@ Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
 - [ ] **Mikrofon-Device wählbar machen.** Aktuell nimmt `cpal` das System-
   Default-Input. Dropdown in Settings mit `cpal::Host::input_devices()`.
 
-- [ ] **Texteingabe als Alternative zum Sprechen.** Toggle in der Orb-Leiste
-  (Tastatur-Icon) und im Tray-Menü, der ein Eingabefeld unter dem Orb
-  einblendet. Inhalt wird wie ein STT-Ergebnis in die Pipeline gefüttert,
-  sodass Tools, Chat-History und TTS-Antwort wie gehabt laufen. Pragmatisch
-  für laute Umgebungen und Debugging.
-
 - [ ] **Freies-Sprechen-Modus (Mikro immer an).** Toggle (Mikro-Icon) nahe
   Orb + Menüpunkt. Offene Fragen: VAD-Strategie (Silero, WebRTC, oder
   Energy-Schwellwert in cpal), wer bestimmt Satzende (STT-Endpoint kann das
   nicht, müsste Client-seitig), Echo-Cancellation gegen den eigenen TTS-
   Output. Erst Konzept skizzieren, dann bauen.
-
-- [ ] **Sprachausgabe an/aus.** Lautsprecher-Toggle nahe Orb + Menüpunkt.
-  Wenn aus, läuft die Pipeline normal, aber der TTS-Step wird übersprungen
-  und nur die Bubble angezeigt. Status-Feld in VoiceConfig, persistent.
 
 - [ ] **`show_info`-Tool für formatierte Anzeige.** Neues Tool, das Markdown
   entgegennimmt und in einem eigenen Fenster (oder Overlay-Panel im Orb-
