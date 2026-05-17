@@ -476,7 +476,7 @@ fn warmup_llm_async(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let cfg = { app.state::<AppState>().config.lock().unwrap().clone() };
-        voice::warmup_llm(&cfg).await;
+        voice::warmup_llm(&app, &cfg).await;
     });
 }
 

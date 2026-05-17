@@ -1139,8 +1139,10 @@ fn trim_base_url(url: &str) -> &str {
 /// Fire-and-forget warmup: send the static prompt prefix (system + developer)
 /// plus a tiny user turn with max_tokens=1 to prime the backend's prompt cache.
 /// Subsequent real requests with the same prefix skip prompt-eval entirely,
-/// which on slow/large models is the dominant TTFT cost.
-pub async fn warmup_llm(config: &VoiceConfig) {
+/// which on slow/large models is the dominant TTFT cost. Also parses
+/// `prompt_tokens` from the response and emits an llm_stats event so the
+/// stats bar shows the static prefix size before the first real request.
+pub async fn warmup_llm(app: &tauri::AppHandle, config: &VoiceConfig) {
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()
@@ -1212,21 +1214,45 @@ pub async fn warmup_llm(config: &VoiceConfig) {
             .await
     };
 
-    match result {
-        Ok(resp) => {
-            let status = resp.status();
-            if !status.is_success() {
-                eprintln!(
-                    "LLM warmup non-OK: {} ({})",
-                    status,
-                    resp.text().await.unwrap_or_default()
-                );
-            } else {
-                let _ = resp.bytes().await;
-            }
+    let resp = match result {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("LLM warmup failed: {}", e);
+            return;
         }
-        Err(e) => eprintln!("LLM warmup failed: {}", e),
+    };
+
+    let status = resp.status();
+    if !status.is_success() {
+        eprintln!(
+            "LLM warmup non-OK: {} ({})",
+            status,
+            resp.text().await.unwrap_or_default()
+        );
+        return;
     }
+
+    let Ok(body) = resp.json::<serde_json::Value>().await else {
+        return;
+    };
+
+    // Find prompt-token count under either OpenAI (usage.prompt_tokens) or
+    // Ollama (prompt_eval_count) naming.
+    let prompt_tokens = body
+        .pointer("/usage/prompt_tokens")
+        .and_then(|v| v.as_u64())
+        .or_else(|| body.get("prompt_eval_count").and_then(|v| v.as_u64()))
+        .map(|n| n as u32);
+
+    let model = body
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let mut stats = LlmStats::default();
+    stats.prompt_tokens = prompt_tokens;
+    stats.model = model;
+    emit_llm_stats(app, stats);
 }
 
 fn openai_chat_completions_url(base_url: &str) -> String {
