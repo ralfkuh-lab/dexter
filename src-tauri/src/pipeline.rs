@@ -547,7 +547,7 @@ async fn execute_tool(
                     } else {
                         &config.vision_model
                     };
-                    match tools::describe_screenshot(&config.llm_base_url, vision_model, &image_b64, &question).await {
+                    match tools::describe_screenshot(&config.llm_base_url, &config.llm_provider, vision_model, &image_b64, &question).await {
                         Ok(desc) => desc,
                         Err(e) => format!("Screenshot captured but vision model failed: {}. The model '{}' may not support image inputs — try setting a vision model like 'llava' in settings.", e, vision_model),
                     }

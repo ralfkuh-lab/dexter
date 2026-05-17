@@ -198,8 +198,15 @@ else:
 
 /// Describe a screenshot image using Ollama's vision capabilities.
 /// Sends the base64 PNG to the model and asks it to describe what's on screen.
+/// Send the JPEG-base64 screenshot to the LLM's vision endpoint.
+/// Branches on provider: Ollama-native `/api/chat` for ollama, OpenAI-compatible
+/// `/v1/chat/completions` with multipart `content` array for everything else
+/// (llama.cpp, vLLM, …). For OpenAI we disable thinking mode — otherwise
+/// Gemma-3n-style models burn the entire token budget in `reasoning_content`
+/// and return an empty answer.
 pub async fn describe_screenshot(
-    ollama_url: &str,
+    base_url: &str,
+    provider: &str,
     model: &str,
     image_b64: &str,
     question: &str,
@@ -209,27 +216,81 @@ pub async fn describe_screenshot(
         .build()
         .map_err(|e| e.to_string())?;
 
+    let base = base_url.trim_end_matches('/');
+
+    if provider == "ollama" {
+        let body = serde_json::json!({
+            "model": model,
+            "messages": [{
+                "role": "user",
+                "content": question,
+                "images": [image_b64],
+            }],
+            "stream": false,
+        });
+
+        let resp = client
+            .post(format!("{}/api/chat", base))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Vision request failed: {}", e))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Vision error {}: {}", status, text));
+        }
+
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse vision response: {}", e))?;
+
+        return Ok(json["message"]["content"]
+            .as_str()
+            .unwrap_or("Could not describe the screenshot.")
+            .to_string());
+    }
+
+    // OpenAI-compatible providers (llama.cpp, vLLM, sglang, …).
+    let url = if base.ends_with("/v1") {
+        format!("{}/chat/completions", base)
+    } else if base.ends_with("/v1/chat/completions") {
+        base.to_string()
+    } else {
+        format!("{}/v1/chat/completions", base)
+    };
+
     let body = serde_json::json!({
         "model": model,
         "messages": [{
             "role": "user",
-            "content": question,
-            "images": [image_b64]
+            "content": [
+                { "type": "text", "text": question },
+                {
+                    "type": "image_url",
+                    "image_url": { "url": format!("data:image/jpeg;base64,{}", image_b64) },
+                },
+            ],
         }],
-        "stream": false
+        "stream": false,
+        "max_tokens": 512,
+        "temperature": 0.2,
+        "chat_template_kwargs": { "enable_thinking": false },
     });
 
     let resp = client
-        .post(format!("{}/api/chat", ollama_url))
+        .post(&url)
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Ollama vision request failed: {}", e))?;
+        .map_err(|e| format!("Vision request failed: {}", e))?;
 
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Ollama vision error {}: {}", status, text));
+        return Err(format!("Vision error {}: {}", status, text));
     }
 
     let json: serde_json::Value = resp
@@ -237,10 +298,24 @@ pub async fn describe_screenshot(
         .await
         .map_err(|e| format!("Failed to parse vision response: {}", e))?;
 
-    Ok(json["message"]["content"]
+    let content = json["choices"][0]["message"]["content"]
         .as_str()
-        .unwrap_or("Could not describe the screenshot.")
-        .to_string())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if !content.is_empty() {
+        return Ok(content);
+    }
+    // Some servers expose the answer only in reasoning_content when thinking
+    // mode slips through despite enable_thinking=false. Fall back to that.
+    let reasoning = json["choices"][0]["message"]["reasoning_content"]
+        .as_str()
+        .unwrap_or("")
+        .trim();
+    if !reasoning.is_empty() {
+        return Ok(reasoning.to_string());
+    }
+    Ok("Could not describe the screenshot.".to_string())
 }
 
 /// Read the system clipboard text on macOS using pbpaste.
