@@ -192,6 +192,19 @@ async fn run_llm_pipeline(
         return Ok(());
     }
 
+    if let Some(cmd) = crate::command_parser::parse(&transcript) {
+        handle_command(&app, cmd);
+        emit_processing(
+            &app,
+            ProcessingState {
+                stage: "idle".to_string(),
+                text: String::new(),
+            },
+        )
+        .map_err(|e: tauri::Error| e.to_string())?;
+        return Ok(());
+    }
+
     if handle_ui_command(&app, &transcript) {
         emit_processing(
             &app,
@@ -612,6 +625,27 @@ fn handle_pending_dialog_answer(app: &tauri::AppHandle, transcript: &str) -> boo
         );
     }
     true
+}
+
+fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
+    use crate::command_parser::Command;
+    use crate::state::record_automation_event;
+
+    match cmd {
+        Command::SetMode(mode) => {
+            let label = mode.to_string();
+            let state = app.state::<AppState>();
+            *state.app_mode.lock().unwrap() = mode;
+            record_automation_event(app, "mode.changed", &label);
+            let _ = app.emit("app_mode_changed", &label);
+        }
+        Command::Status => {
+            let state = app.state::<AppState>();
+            let mode = state.app_mode.lock().unwrap().to_string();
+            record_automation_event(app, "command.status", &mode);
+            let _ = app.emit("app_mode_changed", &mode);
+        }
+    }
 }
 
 fn handle_ui_command(app: &tauri::AppHandle, transcript: &str) -> bool {

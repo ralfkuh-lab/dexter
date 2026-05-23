@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 mod automation;
 mod backend;
+mod command_parser;
 mod commands;
 mod config;
 mod pipeline;
