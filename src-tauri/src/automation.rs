@@ -1,5 +1,8 @@
 use crate::pipeline::{handle_ptt_press, handle_ptt_release, resolve_pending_dialog_selection};
-use crate::state::{record_automation_event, AutomationEvent, ChatMessage, ConsoleError};
+use crate::state::{
+    emit_processing, record_automation_event, AutomationEvent, ChatMessage, ConsoleError,
+    ProcessingState,
+};
 use crate::{commands, AppState};
 use axum::{
     extract::State,
@@ -150,6 +153,7 @@ pub fn start(app: AppHandle) {
             .route("/text", post(post_text))
             .route("/ptt/press", post(post_ptt_press))
             .route("/ptt/release", post(post_ptt_release))
+            .route("/ptt/cancel", post(post_ptt_cancel))
             .route("/dialog/answer", post(post_dialog_answer))
             .route("/panel/close", post(post_panel_close))
             .route("/wait", post(post_wait))
@@ -216,6 +220,23 @@ async fn post_ptt_press(State(state): State<AutomationState>) -> ApiResult<OkRes
 async fn post_ptt_release(State(state): State<AutomationState>) -> ApiResult<OkResponse> {
     handle_ptt_release(&state.app);
     record_automation_event(&state.app, "automation.ptt_release", "PTT released");
+    Ok(Json(OkResponse { ok: true }))
+}
+
+async fn post_ptt_cancel(State(state): State<AutomationState>) -> ApiResult<OkResponse> {
+    {
+        let app_state = state.app.state::<AppState>();
+        *app_state.is_recording.lock().unwrap() = false;
+        app_state.recorded_samples.lock().unwrap().clear();
+    }
+    let _ = emit_processing(
+        &state.app,
+        ProcessingState {
+            stage: "idle".to_string(),
+            text: String::new(),
+        },
+    );
+    record_automation_event(&state.app, "automation.ptt_cancel", "PTT cancelled");
     Ok(Json(OkResponse { ok: true }))
 }
 

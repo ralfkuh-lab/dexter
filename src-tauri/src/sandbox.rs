@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use std::io::Write;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Sandbox security level.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -174,8 +175,8 @@ impl AuditLog {
             timestamp,
             status,
             command,
-            if result.len() > 200 {
-                format!("{}...", &result[..200])
+            if result.chars().count() > 200 {
+                format!("{}...", truncate_chars(result, 200))
             } else {
                 result.to_string()
             }
@@ -293,30 +294,19 @@ fn run_guarded(
 
     let env = build_safe_env();
 
-    let (tx, rx) = std::sync::mpsc::channel();
-    let cmd = command.to_string();
-    let workspace = config.workspace.clone();
-    let env_clone = env.clone();
+    let (shell, shell_args) = platform_shell();
+    let mut cmd = Command::new(shell);
+    cmd.args(shell_args)
+        .arg(command)
+        .current_dir(&config.workspace)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env_clear()
+        .envs(env);
 
-    std::thread::spawn(move || {
-        let (shell, shell_args) = platform_shell();
-        let result = Command::new(shell)
-            .args(shell_args)
-            .arg(&cmd)
-            .current_dir(&workspace)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .env_clear()
-            .envs(env_clone)
-            .output();
-        let _ = tx.send(result);
-    });
-
-    let output = match rx.recv_timeout(std::time::Duration::from_secs(config.timeout_secs)) {
-        Ok(result) => result.map_err(|e| format!("Failed to execute: {}", e))?,
-        Err(_) => return Err(format!("Command timed out after {}s", config.timeout_secs)),
-    };
+    let output = run_with_timeout(&mut cmd, Duration::from_secs(config.timeout_secs))
+        .map_err(|e| format!("Failed to execute: {}", e))?;
 
     format_output(&output)
 }
@@ -386,27 +376,40 @@ fn run_docker(
     args.push("-c".to_string());
     args.push(command.to_string());
 
-    let (tx, rx) = std::sync::mpsc::channel();
-    let args_clone = args.clone();
-
-    std::thread::spawn(move || {
-        let result = Command::new("docker")
-            .args(&args_clone)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output();
-        let _ = tx.send(result);
-    });
-
     // Docker timeout = config timeout + 5s grace for container startup
     let timeout = config.timeout_secs + 5;
-    let output = match rx.recv_timeout(std::time::Duration::from_secs(timeout)) {
-        Ok(result) => result.map_err(|e| format!("Docker exec failed: {}", e))?,
-        Err(_) => return Err(format!("Docker command timed out after {}s", timeout)),
-    };
+    let mut cmd = Command::new("docker");
+    cmd.args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = run_with_timeout(&mut cmd, Duration::from_secs(timeout))
+        .map_err(|e| format!("Docker exec failed: {}", e))?;
 
     format_output(&output)
+}
+
+fn run_with_timeout(command: &mut Command, timeout: Duration) -> Result<Output, String> {
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let started = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().map_err(|e| e.to_string()),
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "Command timed out after {}s and was killed",
+                        timeout.as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
 }
 
 /// Format command output, truncating if needed.
@@ -418,8 +421,8 @@ fn format_output(output: &std::process::Output) -> Result<String, String> {
     let mut result = String::new();
 
     if !stdout.is_empty() {
-        if stdout.len() > max_len {
-            result.push_str(&stdout[..max_len]);
+        if stdout.chars().count() > max_len {
+            result.push_str(&truncate_chars(&stdout, max_len));
             result.push_str("\n... (output truncated)");
         } else {
             result.push_str(&stdout);
@@ -430,8 +433,8 @@ fn format_output(output: &std::process::Output) -> Result<String, String> {
         if !result.is_empty() {
             result.push_str("\n\nSTDERR:\n");
         }
-        let stderr_trunc = if stderr.len() > 1000 {
-            format!("{}... (truncated)", &stderr[..1000])
+        let stderr_trunc = if stderr.chars().count() > 1000 {
+            format!("{}... (truncated)", truncate_chars(&stderr, 1000))
         } else {
             stderr
         };
@@ -451,6 +454,35 @@ fn format_output(output: &std::process::Output) -> Result<String, String> {
     }
 
     Ok(result)
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{run_guarded, truncate_chars, SandboxConfig};
+
+    #[test]
+    fn truncate_chars_does_not_split_multibyte_codepoints() {
+        assert_eq!(truncate_chars("äöü😀xyz", 4), "äöü😀");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn guarded_timeout_kills_command() {
+        let config = SandboxConfig {
+            timeout_secs: 1,
+            workspace: std::env::temp_dir().to_string_lossy().to_string(),
+            ..SandboxConfig::default()
+        };
+
+        let err = run_guarded("sleep 3", &config).expect_err("command should time out");
+
+        assert!(err.contains("timed out"));
+        assert!(err.contains("killed"));
+    }
 }
 
 /// The main entry point — validate, execute, and audit.

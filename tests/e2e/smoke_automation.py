@@ -14,6 +14,11 @@ def main():
     api.post("/panel/close")
     api.post("/wait", {"condition": "idle", "timeout_ms": 1000})
 
+    api.post("/ptt/press")
+    api.post("/wait", {"condition": "recording", "timeout_ms": 1000})
+    api.post("/ptt/cancel")
+    api.post("/wait", {"condition": "idle", "timeout_ms": 1000})
+
     try:
         api.post("/text", {"text": "   "})
     except DexterApiError:

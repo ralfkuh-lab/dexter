@@ -80,6 +80,12 @@ real durchlaeuft.
 Loest dieselben Backend-Pfade aus wie der globale PTT-Hotkey. Damit koennen
 Recording- und Interrupt-Verhalten getestet werden.
 
+### `POST /ptt/cancel`
+
+Stoppt eine laufende Aufnahme, leert die aufgenommenen Samples und setzt den
+State auf `idle`, ohne STT/Whisper anzustossen. Dieser Pfad ist fuer
+Automation-Smokes gedacht, die keinen laufenden Voice-Stack voraussetzen.
+
 ### `POST /dialog/answer`
 
 Body:

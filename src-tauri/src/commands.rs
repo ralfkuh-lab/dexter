@@ -230,6 +230,19 @@ pub fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
 
     {
+        let dialog_pending = state.pending_dialog.lock().unwrap().is_some();
+        if !dialog_pending {
+            let mut cancel = state.pipeline_cancel.lock().unwrap();
+            cancel.cancel();
+            *cancel = CancellationToken::new();
+        }
+    }
+
+    if !has_pending_dialog(&app) {
+        let _ = app.emit("pipeline_interrupted", ());
+    }
+
+    {
         let is_rec = state.is_recording.lock().unwrap();
         if *is_rec {
             return Ok(());

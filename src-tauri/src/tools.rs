@@ -446,10 +446,29 @@ pub async fn web_fetch(url: &str) -> Result<String, String> {
 
     // Truncate to avoid flooding context
     let max_len = 6000;
-    if text.len() > max_len {
-        Ok(format!("{}...\n(truncated, {} total chars)", &text[..max_len], text.len()))
+    let total_chars = text.chars().count();
+    if total_chars > max_len {
+        Ok(format!(
+            "{}...\n(truncated, {} total chars)",
+            truncate_chars(&text, max_len),
+            total_chars
+        ))
     } else {
         Ok(text)
+    }
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_chars;
+
+    #[test]
+    fn truncate_chars_does_not_split_multibyte_codepoints() {
+        assert_eq!(truncate_chars("äöü😀xyz", 4), "äöü😀");
     }
 }
 

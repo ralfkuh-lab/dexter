@@ -158,24 +158,26 @@ fn chunk_text(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
     if text.is_empty() {
         return Vec::new();
     }
-    if text.len() <= chunk_size {
+
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= chunk_size {
         return vec![text.to_string()];
     }
 
     let mut chunks = Vec::new();
     let mut start = 0;
-    while start < text.len() {
-        let end = (start + chunk_size).min(text.len());
+    while start < chars.len() {
+        let end = (start + chunk_size).min(chars.len());
         // Try to break at a sentence or word boundary
-        let chunk_end = if end < text.len() {
+        let mut chunk_end = if end < chars.len() {
             // Look backwards for a good break point
-            let slice = &text[start..end];
+            let slice = chars[start..end].iter().collect::<String>();
             if let Some(pos) = slice.rfind(". ") {
-                start + pos + 2
+                start + slice[..pos + 2].chars().count()
             } else if let Some(pos) = slice.rfind('\n') {
-                start + pos + 1
+                start + slice[..pos + 1].chars().count()
             } else if let Some(pos) = slice.rfind(' ') {
-                start + pos + 1
+                start + slice[..pos + 1].chars().count()
             } else {
                 end
             }
@@ -183,16 +185,28 @@ fn chunk_text(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
             end
         };
 
-        let chunk = text[start..chunk_end].trim().to_string();
+        if chunk_end <= start {
+            chunk_end = end;
+        }
+
+        let chunk = chars[start..chunk_end]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_string();
         if !chunk.is_empty() {
             chunks.push(chunk);
         }
 
-        start = if chunk_end > start + overlap {
+        let next_start = if chunk_end > start + overlap {
             chunk_end - overlap
         } else {
             chunk_end
         };
+        if next_start <= start {
+            break;
+        }
+        start = next_start;
     }
 
     chunks
@@ -255,4 +269,32 @@ fn blob_to_embedding(blob: &[u8]) -> Vec<f64> {
             f64::from_le_bytes(bytes)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chunk_text;
+
+    #[test]
+    fn chunk_text_handles_multibyte_boundaries() {
+        let text = "ä".repeat(20);
+        let chunks = chunk_text(&text, 7, 2);
+
+        assert!(!chunks.is_empty());
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 7));
+        assert_eq!(
+            chunks.first().unwrap(),
+            "äääääää",
+            "chunking should count characters, not bytes"
+        );
+    }
+
+    #[test]
+    fn chunk_text_prefers_word_boundary_with_unicode() {
+        let chunks = chunk_text("Hallo Welt. Größe zählt. Emoji 😀 bleibt.", 18, 4);
+
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| !chunk.is_empty()));
+        assert!(chunks.iter().any(|chunk| chunk.contains("😀")));
+    }
 }
