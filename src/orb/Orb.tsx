@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AudioChunk, ChatBubble, DialogPayload, LlmStats, ProcessingState, VoiceConfig } from "../types";
 import { StatsBar } from "./StatsBar";
+import { ModeBar } from "./ModeBar";
 import { Bubble } from "./Bubble";
 
 let bubbleId = 0;
@@ -20,6 +21,7 @@ export function Orb() {
   const [textInputVisible, setTextInputVisible] = useState<boolean>(false);
   const [textInput, setTextInput] = useState<string>("");
   const [dialog, setDialog] = useState<DialogPayload | null>(null);
+  const [appMode, setAppMode] = useState<string>("chat");
   const bubblesEndRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -43,6 +45,9 @@ export function Orb() {
           setTtsEnabled(c.tts_enabled !== false);
         })
         .catch(() => {});
+      invoke<string>("get_app_mode")
+        .then((m) => setAppMode(m))
+        .catch(() => {});
       invoke<number | null>("get_ctx_max")
         .then((n) => setCtxMax(n))
         .catch(() => {});
@@ -53,9 +58,11 @@ export function Orb() {
     load();
     const unCfg = listen("config_changed", load);
     const unStats = listen<LlmStats>("llm_stats", (e) => setStats(e.payload));
+    const unMode = listen<string>("app_mode_changed", (e) => setAppMode(e.payload));
     return () => {
       unCfg.then((fn) => fn());
       unStats.then((fn) => fn());
+      unMode.then((fn) => fn());
     };
   }, []);
 
@@ -311,6 +318,7 @@ export function Orb() {
 
   return (
     <div className="flex flex-col h-screen orb-bg px-5 py-4">
+      <ModeBar mode={appMode} />
       {/* Conversation bubbles */}
       <div className="flex-1 overflow-y-auto flex flex-col justify-end px-3.5 pt-4 pb-2.5 gap-2 no-scrollbar bubble-mask">
         {bubbles.map((b) => (
