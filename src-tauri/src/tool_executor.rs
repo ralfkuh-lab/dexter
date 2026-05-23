@@ -281,8 +281,10 @@ pub async fn execute_tool(
                 let working_dir =
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                 match agent_session::ensure_session(&mode, &working_dir).await {
-                    Ok(name) => {
-                        let _ = agent_session::open_terminal(&name).await;
+                    Ok(session) => {
+                        if session.created {
+                            let _ = agent_session::open_terminal(&session.name).await;
+                        }
                         format!("Modus auf {} gewechselt. Terminal geöffnet.", label)
                     }
                     Err(e) => format!("Modus auf {} gewechselt, aber Terminal-Start fehlgeschlagen: {}", label, e),

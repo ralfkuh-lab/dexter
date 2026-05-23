@@ -558,13 +558,14 @@ async fn run_agent_session(
 
     let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
-    let session_name = agent_session::ensure_session(mode, &working_dir).await?;
+    let session = agent_session::ensure_session(mode, &working_dir).await?;
 
-    agent_session::open_terminal(&session_name).await?;
+    if session.created {
+        agent_session::open_terminal(&session.name).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
 
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    agent_session::send_keys(&session_name, prompt).await?;
+    agent_session::send_keys(&session.name, prompt).await?;
 
     record_automation_event(
         app,
@@ -606,8 +607,10 @@ fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
                     let working_dir =
                         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                     match crate::agent_session::ensure_session(&mode, &working_dir).await {
-                        Ok(name) => {
-                            let _ = crate::agent_session::open_terminal(&name).await;
+                        Ok(session) => {
+                            if session.created {
+                                let _ = crate::agent_session::open_terminal(&session.name).await;
+                            }
                         }
                         Err(e) => {
                             eprintln!("Agent-Session konnte nicht gestartet werden: {}", e);

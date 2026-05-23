@@ -36,12 +36,17 @@ async fn tmux_session_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub async fn ensure_session(mode: &AppMode, working_dir: &PathBuf) -> Result<String, String> {
+pub struct SessionInfo {
+    pub name: String,
+    pub created: bool,
+}
+
+pub async fn ensure_session(mode: &AppMode, working_dir: &PathBuf) -> Result<SessionInfo, String> {
     let name = session_name(mode);
     let agent = agent_command(mode).ok_or_else(|| format!("Kein Agent für {}", mode))?;
 
     if tmux_session_exists(&name).await {
-        return Ok(name);
+        return Ok(SessionInfo { name, created: false });
     }
 
     let status = Command::new("tmux")
@@ -68,7 +73,7 @@ pub async fn ensure_session(mode: &AppMode, working_dir: &PathBuf) -> Result<Str
         return Err(format!("tmux new-session für {} fehlgeschlagen", agent));
     }
 
-    Ok(name)
+    Ok(SessionInfo { name, created: true })
 }
 
 pub async fn open_terminal(session_name: &str) -> Result<(), String> {
