@@ -7,6 +7,7 @@ use tauri::{
 };
 use tokio_util::sync::CancellationToken;
 
+mod agent_session;
 mod automation;
 mod backend;
 mod command_parser;

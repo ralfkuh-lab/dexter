@@ -219,21 +219,7 @@ async fn run_llm_pipeline(
     {
         let mode = app.state::<AppState>().app_mode.lock().unwrap().clone();
         if mode != crate::state::AppMode::Chat {
-            let msg = format!(
-                "Session-Routing für {} ist noch nicht implementiert. \
-                 Sage \"Kommando Chat\" um zurück in den Chat-Modus zu wechseln.",
-                mode
-            );
-            let _ = app.emit("assistant_text", &msg);
-            emit_processing(
-                &app,
-                ProcessingState {
-                    stage: "idle".to_string(),
-                    text: String::new(),
-                },
-            )
-            .map_err(|e: tauri::Error| e.to_string())?;
-            return Ok(());
+            return run_agent_session(&app, &mode, &transcript, &config).await;
         }
     }
 
@@ -561,6 +547,48 @@ async fn run_llm_pipeline(
     Ok(())
 }
 
+async fn run_agent_session(
+    app: &tauri::AppHandle,
+    mode: &crate::state::AppMode,
+    prompt: &str,
+    _config: &VoiceConfig,
+) -> Result<(), String> {
+    use crate::agent_session;
+    use crate::state::record_automation_event;
+
+    let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+    let session_name = agent_session::ensure_session(mode, &working_dir).await?;
+
+    agent_session::open_terminal(&session_name).await?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    agent_session::send_keys(&session_name, prompt).await?;
+
+    record_automation_event(
+        app,
+        "agent.sent",
+        &format!("{}:{}", mode, &prompt[..prompt.len().min(80)]),
+    );
+
+    let _ = app.emit(
+        "assistant_text",
+        &format!("➜ {} — Eingabe gesendet", mode),
+    );
+
+    emit_processing(
+        app,
+        ProcessingState {
+            stage: "idle".to_string(),
+            text: String::new(),
+        },
+    )
+    .map_err(|e: tauri::Error| e.to_string())?;
+
+    Ok(())
+}
+
 fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
     use crate::command_parser::Command;
     use crate::state::record_automation_event;
@@ -569,9 +597,24 @@ fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
         Command::SetMode(mode) => {
             let label = mode.to_string();
             let state = app.state::<AppState>();
-            *state.app_mode.lock().unwrap() = mode;
+            *state.app_mode.lock().unwrap() = mode.clone();
             record_automation_event(app, "mode.changed", &label);
             let _ = app.emit("app_mode_changed", &label);
+
+            if mode != crate::state::AppMode::Chat {
+                tauri::async_runtime::spawn(async move {
+                    let working_dir =
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    match crate::agent_session::ensure_session(&mode, &working_dir).await {
+                        Ok(name) => {
+                            let _ = crate::agent_session::open_terminal(&name).await;
+                        }
+                        Err(e) => {
+                            eprintln!("Agent-Session konnte nicht gestartet werden: {}", e);
+                        }
+                    }
+                });
+            }
         }
         Command::Status => {
             let state = app.state::<AppState>();

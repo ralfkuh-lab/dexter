@@ -194,6 +194,13 @@ export function Orb() {
   }, []);
 
   useEffect(() => {
+    const unlisten = listen<string>("assistant_text", (event) => {
+      addBubble("assistant", event.payload);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  useEffect(() => {
     const unlisten = listen<string>("llm_debug", (event) => {
       addBubble("debug", event.payload);
     });
