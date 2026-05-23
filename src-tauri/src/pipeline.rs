@@ -52,8 +52,8 @@ pub fn handle_ptt_release(app: &tauri::AppHandle) {
             let _ = app_clone.emit(
                 "processing",
                 ProcessingState {
-                    stage: "error".to_string(),
-                    text: "No audio recorded".to_string(),
+                    stage: "idle".to_string(),
+                    text: String::new(),
                 },
             );
             return;
@@ -119,7 +119,7 @@ pub async fn process_pipeline(
             },
         )
         .map_err(|e: tauri::Error| e.to_string())?;
-        return Err("No speech detected".to_string());
+        return Ok(());
     }
 
     run_llm_pipeline(app, transcript, config, cancel).await

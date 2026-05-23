@@ -291,7 +291,14 @@ pub fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
     let config = state.config.lock().unwrap().clone();
 
     if samples.is_empty() {
-        return Err("No audio recorded".to_string());
+        let _ = app.emit(
+            "processing",
+            ProcessingState {
+                stage: "idle".into(),
+                text: String::new(),
+            },
+        );
+        return Ok(());
     }
 
     let cancel_token = state.pipeline_cancel.lock().unwrap().clone();
