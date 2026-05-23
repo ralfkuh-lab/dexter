@@ -229,7 +229,7 @@ pub fn build_tools(tools_config: &ToolsConfig) -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "switch_mode",
-                "description": "Switch Dexter's application mode. Use when the user wants to start a coding session with a CLI agent (claude, codex, agy, opencode) or return to normal chat mode. This opens the agent in a visible terminal window.",
+                "description": "Switch Dexter's application mode. Use when the user wants to start a coding session with a CLI agent (claude, codex, agy, opencode) or return to normal chat mode. This opens the agent in a visible terminal window. Note: speech recognition often mishears agent names — 'agi'/'agee'/'AG' likely means 'agy', 'codex'/'co-decks' means 'codex', 'cloud'/'clod' might mean 'claude'. If ambiguous, use the ask_user tool to clarify before switching.",
                 "parameters": {
                     "type": "object",
                     "properties": {

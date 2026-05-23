@@ -43,6 +43,8 @@ pub fn parse(transcript: &str) -> Option<Command> {
             Some(Command::SetMode(AppMode::OpencodeSession))
         }
         _ if matches_coding_session(rest, "agy")
+            || matches_coding_session(rest, "agi")
+            || matches_coding_session(rest, "agee")
             || matches_coding_session(rest, "antigravity") =>
         {
             Some(Command::SetMode(AppMode::AgySession))
