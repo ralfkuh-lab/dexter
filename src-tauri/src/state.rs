@@ -4,6 +4,7 @@ use crate::voice;
 use crate::{rag, sandbox, VoiceConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Serialize)]
@@ -30,9 +31,41 @@ pub struct ChatMessage {
     pub tool_call_id: Option<String>,
 }
 
+#[derive(Clone, Serialize)]
+pub struct PanelInfo {
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Default)]
+pub struct UiState {
+    pub panel: Option<PanelInfo>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DialogOption {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct DialogPayload {
+    pub question: String,
+    pub options: Vec<DialogOption>,
+}
+
+pub struct DialogState {
+    pub question: String,
+    pub options: Vec<DialogOption>,
+    pub responder: oneshot::Sender<String>,
+}
+
 pub struct AppState {
     pub messages: Mutex<Vec<ChatMessage>>,
     pub config: Mutex<VoiceConfig>,
+    pub ui_state: Mutex<UiState>,
+    pub pending_dialog: Mutex<Option<DialogState>>,
     pub rag_store: rag::RagStore,
     pub audit_log: Mutex<sandbox::AuditLog>,
     /// Audio samples collected by the recording thread.

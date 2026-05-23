@@ -100,3 +100,102 @@
 .settings-bg {
   background: rgba(10, 10, 24, 0.98);
 }
+
+/* Detail panel */
+.panel-shell {
+  background: #0c0f14;
+}
+
+.panel-markdown {
+  user-select: text;
+}
+
+.panel-markdown > * + * {
+  margin-top: 0.8rem;
+}
+
+.panel-markdown h1,
+.panel-markdown h2,
+.panel-markdown h3 {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.panel-markdown h1 {
+  font-size: 1.35rem;
+}
+
+.panel-markdown h2 {
+  font-size: 1.1rem;
+}
+
+.panel-markdown h3 {
+  font-size: 0.95rem;
+}
+
+.panel-markdown p,
+.panel-markdown li {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.panel-markdown ul,
+.panel-markdown ol {
+  padding-left: 1.25rem;
+}
+
+.panel-markdown a {
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.panel-markdown code {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.1rem 0.25rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.9em;
+}
+
+.panel-markdown pre {
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.85rem;
+}
+
+.panel-markdown pre code {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.panel-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.panel-markdown th,
+.panel-markdown td {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.panel-markdown th {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.panel-markdown blockquote {
+  border-left: 3px solid rgba(125, 211, 252, 0.55);
+  padding-left: 0.8rem;
+  color: rgba(255, 255, 255, 0.65);
+}

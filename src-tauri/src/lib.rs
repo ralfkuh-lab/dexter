@@ -29,6 +29,8 @@ pub fn run() {
         .manage(AppState {
             messages: Mutex::new(Vec::new()),
             config: Mutex::new(VoiceConfig::load()),
+            ui_state: Mutex::new(state::UiState::default()),
+            pending_dialog: Mutex::new(None),
             rag_store: rag::RagStore::new().expect("Failed to initialize RAG store"),
             audit_log: Mutex::new(sandbox::AuditLog::new()),
             recorded_samples: Mutex::new(Vec::new()),
@@ -190,6 +192,8 @@ pub fn run() {
             commands::get_core_system_prompt,
             commands::get_ctx_max,
             commands::get_last_stats,
+            commands::get_panel_content,
+            commands::resolve_dialog,
             commands::list_models,
             commands::set_config,
             commands::get_messages,

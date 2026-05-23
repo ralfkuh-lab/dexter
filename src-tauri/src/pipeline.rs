@@ -1,20 +1,25 @@
 //! Audio-→-STT-→-LLM-→-TTS-Pipeline plus PTT-Handler und Tool-Ausführung.
 
-use crate::state::{AudioChunk, ProcessingState};
+use crate::state::{AudioChunk, DialogOption, DialogPayload, PanelInfo, ProcessingState};
 use crate::window::reveal_main_window;
 use crate::{sandbox, tools, voice, AppState, ChatMessage, ToolsConfig, VoiceConfig};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
 
 pub fn handle_ptt_press(app: &tauri::AppHandle) {
     {
         let state = app.state::<AppState>();
-        let mut cancel = state.pipeline_cancel.lock().unwrap();
-        cancel.cancel();
-        *cancel = CancellationToken::new();
+        let dialog_pending = state.pending_dialog.lock().unwrap().is_some();
+        if !dialog_pending {
+            let mut cancel = state.pipeline_cancel.lock().unwrap();
+            cancel.cancel();
+            *cancel = CancellationToken::new();
+        }
     }
 
-    let _ = app.emit("pipeline_interrupted", ());
+    if !has_pending_dialog(app) {
+        let _ = app.emit("pipeline_interrupted", ());
+    }
     reveal_main_window(app);
     let _ = app.emit("hotkey_pressed", ());
 
@@ -158,6 +163,30 @@ async fn run_llm_pipeline(
     )
     .map_err(|e: tauri::Error| e.to_string())?;
 
+    if handle_pending_dialog_answer(&app, &transcript) {
+        app.emit(
+            "processing",
+            ProcessingState {
+                stage: "idle".to_string(),
+                text: String::new(),
+            },
+        )
+        .map_err(|e: tauri::Error| e.to_string())?;
+        return Ok(());
+    }
+
+    if handle_ui_command(&app, &transcript) {
+        app.emit(
+            "processing",
+            ProcessingState {
+                stage: "idle".to_string(),
+                text: String::new(),
+            },
+        )
+        .map_err(|e: tauri::Error| e.to_string())?;
+        return Ok(());
+    }
+
     // Add user message
     {
         app.state::<AppState>()
@@ -182,9 +211,23 @@ async fn run_llm_pipeline(
     )
     .map_err(|e: tauri::Error| e.to_string())?;
 
-    let all_messages = redact_stale_tool_results(
-        &app.state::<AppState>().messages.lock().unwrap(),
-    );
+    let mut all_messages =
+        redact_stale_tool_results(&app.state::<AppState>().messages.lock().unwrap());
+    if let Some(ui_context) = build_ui_context(&app) {
+        let insert_at = all_messages
+            .iter()
+            .rposition(|m| m.role == "user")
+            .unwrap_or(all_messages.len());
+        all_messages.insert(
+            insert_at,
+            ChatMessage {
+                role: "system".to_string(),
+                content: ui_context,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        );
+    }
 
     let tools = voice::build_tools(&config.tools);
     let forced_tool = forced_tool_for_transcript(&transcript, &config.tools);
@@ -242,7 +285,10 @@ async fn run_llm_pipeline(
                         if config.debug_bubbles {
                             let _ = app.emit(
                                 "llm_debug",
-                                format!("LLM response: content only, {} chars", text.chars().count()),
+                                format!(
+                                    "LLM response: content only, {} chars",
+                                    text.chars().count()
+                                ),
                             );
                         }
                         return Ok::<String, String>(text);
@@ -368,7 +414,10 @@ async fn run_llm_pipeline(
             }
 
             if config.debug_bubbles {
-                let _ = app.emit("llm_debug", "LLM final request: tools disabled after max rounds");
+                let _ = app.emit(
+                    "llm_debug",
+                    "LLM final request: tools disabled after max rounds",
+                );
             }
             let result = voice::chat_streaming(&app, &config, &all_msgs, &[], None, &sentence_tx)
                 .await
@@ -470,6 +519,124 @@ async fn run_llm_pipeline(
     Ok(())
 }
 
+pub fn has_pending_dialog(app: &tauri::AppHandle) -> bool {
+    app.state::<AppState>()
+        .pending_dialog
+        .lock()
+        .unwrap()
+        .is_some()
+}
+
+pub fn resolve_pending_dialog_selection(
+    app: &tauri::AppHandle,
+    selected: &str,
+) -> Result<String, String> {
+    let selected_label = {
+        let state = app.state::<AppState>();
+        let pending = state.pending_dialog.lock().unwrap();
+        let dialog = pending
+            .as_ref()
+            .ok_or_else(|| "No dialog is pending.".to_string())?;
+        match_dialog_selection(selected, &dialog.options)
+            .or_else(|| {
+                dialog
+                    .options
+                    .iter()
+                    .find(|option| option.label == selected)
+                    .map(|option| option.label.clone())
+            })
+            .ok_or_else(|| "Selected option does not match the pending dialog.".to_string())?
+    };
+
+    let state = app.state::<AppState>();
+    let dialog = state
+        .pending_dialog
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| "No dialog is pending.".to_string())?;
+    let _ = dialog.responder.send(selected_label.clone());
+    let _ = app.emit("dismiss_dialog", ());
+    Ok(selected_label)
+}
+
+fn handle_pending_dialog_answer(app: &tauri::AppHandle, transcript: &str) -> bool {
+    let (is_pending, selected) = {
+        let state = app.state::<AppState>();
+        let pending = state.pending_dialog.lock().unwrap();
+        if let Some(dialog) = pending.as_ref() {
+            (true, match_dialog_selection(transcript, &dialog.options))
+        } else {
+            (false, None)
+        }
+    };
+
+    if !is_pending {
+        return false;
+    }
+
+    if let Some(selected) = selected {
+        let _ = resolve_pending_dialog_selection(app, &selected);
+    } else {
+        let _ = app.emit(
+            "processing",
+            ProcessingState {
+                stage: "idle".to_string(),
+                text: String::new(),
+            },
+        );
+    }
+    true
+}
+
+fn handle_ui_command(app: &tauri::AppHandle, transcript: &str) -> bool {
+    let text = transcript.to_lowercase();
+    let close_words = [
+        "schließ",
+        "schliess",
+        "schließe",
+        "schliesse",
+        "close",
+        "panel zu",
+        "fenster zu",
+        "mach zu",
+        "mach das panel zu",
+        "schließ das panel",
+        "schliess das panel",
+        "ok danke",
+    ];
+
+    if contains_any(&text, &close_words) {
+        let state = app.state::<AppState>();
+        let had_panel = state.ui_state.lock().unwrap().panel.is_some();
+        if had_panel {
+            if let Some(window) = app.get_webview_window("panel") {
+                let _ = window.close();
+            }
+            state.ui_state.lock().unwrap().panel = None;
+            return true;
+        }
+    }
+
+    false
+}
+
+fn build_ui_context(app: &tauri::AppHandle) -> Option<String> {
+    let state = app.state::<AppState>();
+    let ui = state.ui_state.lock().unwrap();
+    let mut parts = Vec::new();
+
+    if let Some(panel) = ui.panel.as_ref() {
+        parts.push(format!("Detail panel '{}' is open.", panel.title));
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!("[UI state: {}]", parts.join(" ")))
+    }
+}
+
 fn forced_tool_for_transcript(transcript: &str, tools: &ToolsConfig) -> Option<String> {
     let text = transcript.to_lowercase();
 
@@ -514,6 +681,128 @@ fn forced_tool_for_transcript(transcript: &str, tools: &ToolsConfig) -> Option<S
 
 fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
+}
+
+fn match_dialog_selection(transcript: &str, options: &[DialogOption]) -> Option<String> {
+    let text = normalize_selection_text(transcript);
+    if text.is_empty() {
+        return None;
+    }
+
+    let aliases: &[&[&str]] = &[
+        &["a", "1", "eins", "erste", "erster", "erstes", "option a"],
+        &[
+            "b", "be", "bee", "2", "zwei", "zweite", "zweiter", "zweites", "option b",
+        ],
+        &[
+            "c", "ce", "cee", "3", "drei", "dritte", "dritter", "drittes", "option c",
+        ],
+        &[
+            "d", "de", "dee", "4", "vier", "vierte", "vierter", "viertes", "option d",
+        ],
+    ];
+
+    let tokens = text.split_whitespace().collect::<Vec<_>>();
+    for (idx, option) in options.iter().enumerate() {
+        if idx < aliases.len()
+            && aliases[idx].iter().any(|alias| {
+                if alias.contains(' ') {
+                    text == *alias || text.contains(alias)
+                } else {
+                    text == *alias || tokens.contains(alias)
+                }
+            })
+        {
+            return Some(option.label.clone());
+        }
+    }
+
+    for option in options {
+        let label = normalize_selection_text(&option.label);
+        if label.is_empty() {
+            continue;
+        }
+        if text == label || (label.len() >= 3 && (text.contains(&label) || label.contains(&text))) {
+            return Some(option.label.clone());
+        }
+    }
+
+    None
+}
+
+fn normalize_selection_text(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() || ch.is_whitespace() {
+                ch
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+async fn show_panel(app: &tauri::AppHandle, title: String, content: String) -> Result<(), String> {
+    let panel_info = PanelInfo {
+        title: title.clone(),
+        content: content.clone(),
+    };
+
+    {
+        let state = app.state::<AppState>();
+        state.ui_state.lock().unwrap().panel = Some(panel_info.clone());
+    }
+
+    let window = if let Some(window) = app.get_webview_window("panel") {
+        window
+    } else {
+        let url = tauri::WebviewUrl::App("index.html?view=panel".into());
+        let window = WebviewWindowBuilder::new(app, "panel", url)
+            .title(format!("Dexter - {}", title))
+            .inner_size(600.0, 500.0)
+            .min_inner_size(400.0, 300.0)
+            .resizable(true)
+            .decorations(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let app_handle = app.clone();
+        window.on_window_event(move |event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+            ) {
+                let state = app_handle.state::<AppState>();
+                state.ui_state.lock().unwrap().panel = None;
+            }
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        window
+    };
+
+    let _ = window.set_title(&format!("Dexter - {}", title));
+    let _ = window.show();
+    let _ = window.set_focus();
+    app.emit_to("panel", "panel_content", panel_info)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn clear_pending_dialog(app: &tauri::AppHandle, question: &str) {
+    let state = app.state::<AppState>();
+    let mut pending = state.pending_dialog.lock().unwrap();
+    let should_clear = pending
+        .as_ref()
+        .map(|dialog| dialog.question == question)
+        .unwrap_or(false);
+    if should_clear {
+        *pending = None;
+    }
 }
 
 /// Execute a single tool call and return the result text.
@@ -645,6 +934,115 @@ async fn execute_tool(
                 }
             }
         }
+        "show_panel" => {
+            let title = tool_call
+                .function
+                .arguments
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Details")
+                .trim()
+                .to_string();
+            let content = tool_call
+                .function
+                .arguments
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let title = if title.is_empty() {
+                "Details".to_string()
+            } else {
+                title
+            };
+
+            match show_panel(app, title.clone(), content).await {
+                Ok(()) => format!("Panel '{}' geöffnet.", title),
+                Err(e) => format!("Failed to open panel: {}", e),
+            }
+        }
+        "ask_user" => {
+            let question = tool_call
+                .function
+                .arguments
+                .get("question")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Welche Option soll ich nehmen?")
+                .trim()
+                .to_string();
+            let options = tool_call
+                .function
+                .arguments
+                .get("options")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            let label = item
+                                .get("label")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .trim();
+                            if label.is_empty() {
+                                return None;
+                            }
+                            let description = item
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                                .map(ToString::to_string);
+                            Some(DialogOption {
+                                label: label.to_string(),
+                                description,
+                            })
+                        })
+                        .take(4)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            if options.len() < 2 {
+                return "ask_user failed: at least two options are required.".to_string();
+            }
+
+            let question = if question.is_empty() {
+                "Welche Option soll ich nehmen?".to_string()
+            } else {
+                question
+            };
+            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+            {
+                let state = app.state::<AppState>();
+                if let Some(existing) = state.pending_dialog.lock().unwrap().take() {
+                    let _ = existing
+                        .responder
+                        .send("No selection received.".to_string());
+                }
+                *state.pending_dialog.lock().unwrap() = Some(crate::state::DialogState {
+                    question: question.clone(),
+                    options: options.clone(),
+                    responder: tx,
+                });
+            }
+
+            let payload = DialogPayload {
+                question: question.clone(),
+                options: options.clone(),
+            };
+            let _ = app.emit("show_dialog", payload);
+
+            match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
+                Ok(Ok(selected)) => format!("User selected: {}", selected),
+                Ok(Err(_)) => "No selection received.".to_string(),
+                Err(_) => {
+                    clear_pending_dialog(app, &question);
+                    let _ = app.emit("dismiss_dialog", ());
+                    "No selection received before timeout.".to_string()
+                }
+            }
+        }
         "run_command" => {
             let command = tool_call
                 .function
@@ -677,10 +1075,7 @@ async fn execute_tool(
 const VOLATILE_TOOLS: &[&str] = &["get_current_time", "read_clipboard"];
 
 fn redact_stale_tool_results(messages: &[ChatMessage]) -> Vec<ChatMessage> {
-    let last_user_idx = messages
-        .iter()
-        .rposition(|m| m.role == "user")
-        .unwrap_or(0);
+    let last_user_idx = messages.iter().rposition(|m| m.role == "user").unwrap_or(0);
 
     // Collect tool_call_ids from volatile tools in older turns.
     let mut volatile_ids = std::collections::HashSet::new();
@@ -725,9 +1120,9 @@ fn redact_stale_tool_results(messages: &[ChatMessage]) -> Vec<ChatMessage> {
             }
             // Also redact user messages that carry XML-style tool results.
             if msg.role == "user" && msg.content.starts_with("Here are the tool results") {
-                let dominated_by_volatile = VOLATILE_TOOLS.iter().any(|t| {
-                    msg.content.contains(&format!("[Tool result for {}]", t))
-                });
+                let dominated_by_volatile = VOLATILE_TOOLS
+                    .iter()
+                    .any(|t| msg.content.contains(&format!("[Tool result for {}]", t)));
                 if dominated_by_volatile {
                     return ChatMessage {
                         content: "(outdated tool results)".to_string(),

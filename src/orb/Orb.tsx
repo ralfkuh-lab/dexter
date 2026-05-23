@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AudioChunk, ChatBubble, LlmStats, ProcessingState, VoiceConfig } from "../types";
+import { AudioChunk, ChatBubble, DialogPayload, LlmStats, ProcessingState, VoiceConfig } from "../types";
 import { StatsBar } from "./StatsBar";
 import { Bubble } from "./Bubble";
 
@@ -19,6 +19,7 @@ export function Orb() {
   const [ttsEnabled, setTtsEnabled] = useState<boolean>(true);
   const [textInputVisible, setTextInputVisible] = useState<boolean>(false);
   const [textInput, setTextInput] = useState<string>("");
+  const [dialog, setDialog] = useState<DialogPayload | null>(null);
   const bubblesEndRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -228,6 +229,20 @@ export function Orb() {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
+  useEffect(() => {
+    const unShow = listen<DialogPayload>("show_dialog", (event) => {
+      setDialog(event.payload);
+      setStage("idle");
+    });
+    const unDismiss = listen("dismiss_dialog", () => {
+      setDialog(null);
+    });
+    return () => {
+      unShow.then((fn) => fn());
+      unDismiss.then((fn) => fn());
+    };
+  }, []);
+
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
@@ -254,6 +269,15 @@ export function Orb() {
       await invoke("submit_text", { text });
     } catch (e) {
       setStage("error");
+      addBubble("status", String(e));
+    }
+  };
+
+  const chooseDialogOption = async (label: string) => {
+    try {
+      await invoke("resolve_dialog", { selected: label });
+      setDialog(null);
+    } catch (e) {
       addBubble("status", String(e));
     }
   };
@@ -299,6 +323,36 @@ export function Orb() {
         )}
         <div ref={bubblesEndRef} />
       </div>
+
+      {dialog && (
+        <div className="shrink-0 mx-2 mb-2 rounded-lg border border-white/10 bg-black/35 glass-subtle p-3 animate-fade-in">
+          <div className="text-[12px] leading-5 font-medium text-white/85 mb-2">
+            {dialog.question}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {dialog.options.map((option, index) => (
+              <button
+                key={`${option.label}-${index}`}
+                type="button"
+                onClick={() => chooseDialogOption(option.label)}
+                className="w-full flex items-start gap-2 rounded-md border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] px-2.5 py-2 text-left transition-colors"
+              >
+                <span className="shrink-0 w-5 h-5 rounded bg-cyan-400/15 text-cyan-200 text-[11px] leading-5 text-center font-semibold">
+                  {String.fromCharCode(65 + index)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px] leading-4 text-white/85">{option.label}</span>
+                  {option.description && (
+                    <span className="block text-[11px] leading-4 text-white/45 mt-0.5">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {textInputVisible && (
         <div className="shrink-0 px-2 pt-1 pb-1">

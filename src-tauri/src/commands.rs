@@ -2,13 +2,15 @@
 
 use crate::backend::{refresh_ctx_max, register_ptt_shortcut, warmup_llm_async};
 use crate::config::{core_system_prompt, system_info};
-use crate::pipeline::{process_pipeline, process_text_input};
-use crate::state::ProcessingState;
+use crate::pipeline::{
+    has_pending_dialog, process_pipeline, process_text_input, resolve_pending_dialog_selection,
+};
+use crate::state::{PanelInfo, ProcessingState};
 use crate::window::reveal_main_window;
 use crate::{voice, AppState, ChatMessage, VoiceConfig};
-use tokio_util::sync::CancellationToken;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tokio_util::sync::CancellationToken;
 
 #[tauri::command]
 pub fn get_config(state: tauri::State<AppState>) -> VoiceConfig {
@@ -97,6 +99,16 @@ pub fn get_ctx_max(state: tauri::State<AppState>) -> Option<u32> {
 #[tauri::command]
 pub fn get_last_stats(state: tauri::State<AppState>) -> Option<voice::LlmStats> {
     state.last_stats.lock().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn get_panel_content(state: tauri::State<AppState>) -> Option<PanelInfo> {
+    state.ui_state.lock().unwrap().panel.clone()
+}
+
+#[tauri::command]
+pub fn resolve_dialog(app: tauri::AppHandle, selected: String) -> Result<(), String> {
+    resolve_pending_dialog_selection(&app, &selected).map(|_| ())
 }
 
 #[tauri::command]
@@ -253,19 +265,22 @@ pub fn submit_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
 
     let state = app.state::<AppState>();
     let config = state.config.lock().unwrap().clone();
-    let cancel_token = {
-        let mut cancel = state.pipeline_cancel.lock().unwrap();
-        cancel.cancel();
-        *cancel = CancellationToken::new();
-        cancel.clone()
+    let cancel_token = if has_pending_dialog(&app) {
+        state.pipeline_cancel.lock().unwrap().clone()
+    } else {
+        let token = {
+            let mut cancel = state.pipeline_cancel.lock().unwrap();
+            cancel.cancel();
+            *cancel = CancellationToken::new();
+            cancel.clone()
+        };
+        let _ = app.emit("pipeline_interrupted", ());
+        token
     };
-    let _ = app.emit("pipeline_interrupted", ());
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            process_text_input(app_handle.clone(), text, config, cancel_token).await
-        {
+        if let Err(e) = process_text_input(app_handle.clone(), text, config, cancel_token).await {
             if e != "interrupted" {
                 eprintln!("Text pipeline error: {}", e);
                 let _ = app_handle.emit(

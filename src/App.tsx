@@ -1,5 +1,6 @@
 import "./App.css";
 import { Orb } from "./orb/Orb";
+import { Panel } from "./panel/Panel";
 import { Settings } from "./settings/Settings";
 
 function App() {
@@ -8,6 +9,9 @@ function App() {
 
   if (view === "settings") {
     return <Settings />;
+  }
+  if (view === "panel") {
+    return <Panel />;
   }
   return <Orb />;
 }

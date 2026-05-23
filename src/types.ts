@@ -12,6 +12,8 @@ export interface ToolsConfig {
   list_apps: boolean;
   run_command: boolean;
   web_fetch: boolean;
+  show_panel: boolean;
+  ask_user: boolean;
 }
 
 export interface SandboxConfig {
@@ -64,6 +66,16 @@ export interface AudioChunk {
   audio: string;
 }
 
+export interface DialogOption {
+  label: string;
+  description?: string | null;
+}
+
+export interface DialogPayload {
+  question: string;
+  options: DialogOption[];
+}
+
 export interface ChatBubble {
   role: "user" | "assistant" | "status" | "tool" | "debug";
   text: string;
@@ -81,4 +93,6 @@ export const TOOL_LABEL_MAP: Record<string, string> = {
   list_running_apps: "Listing apps",
   run_command: "Running command",
   web_fetch: "Fetching web page",
+  show_panel: "Showing panel",
+  ask_user: "Asking question",
 };

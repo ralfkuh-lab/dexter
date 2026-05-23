@@ -25,6 +25,10 @@ pub struct ToolsConfig {
     pub run_command: bool,
     #[serde(default = "default_true")]
     pub web_fetch: bool,
+    #[serde(default = "default_true")]
+    pub show_panel: bool,
+    #[serde(default = "default_true")]
+    pub ask_user: bool,
 }
 
 fn default_true() -> bool {
@@ -42,6 +46,8 @@ impl Default for ToolsConfig {
             list_apps: false,
             run_command: false, // Off by default — powerful tool
             web_fetch: false,
+            show_panel: true,
+            ask_user: true,
         }
     }
 }
@@ -94,6 +100,8 @@ pub fn core_system_prompt() -> &'static str {
 - "What does this website say", "read this article" → web_fetch
 - "What apps are open", "is Firefox running" → list_running_apps
 - System tasks, file operations, checks → run_command
+- Tables, code, diffs, file listings, build output, or long details → show_panel(title, content). Still speak a short summary.
+- Ambiguous choices that need the user's preference → ask_user
 
 # Common mistakes to avoid
 - Do NOT answer time/date questions from memory. ALWAYS call get_current_time.

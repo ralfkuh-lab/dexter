@@ -9,6 +9,8 @@ const TOOL_DEFINITIONS: { key: keyof ToolsConfig; name: string; desc: string; ic
   { key: "get_current_time", name: "Current Time", desc: "Get the current date, time, and day of week", icon: "🕐" },
   { key: "list_apps", name: "Running Apps", desc: "List currently running applications", icon: "🖥" },
   { key: "web_fetch", name: "Web Fetch", desc: "Fetch and read web pages for information", icon: "🕸" },
+  { key: "show_panel", name: "Detail Panel", desc: "Show long output, code, tables, and diffs in a separate window", icon: "🧾" },
+  { key: "ask_user", name: "Ask User", desc: "Ask multiple-choice clarification questions in the orb", icon: "❓" },
   { key: "run_command", name: "Shell Command", desc: "Execute terminal commands in the platform shell", icon: "⚡" },
 ];
 

@@ -140,6 +140,70 @@ pub fn build_tools(tools_config: &ToolsConfig) -> Vec<serde_json::Value> {
         }));
     }
 
+    if tools_config.show_panel {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "show_panel",
+                "description": "Open a separate detail panel with Markdown-formatted content that is too long or complex for speech. Use for file listings, code, tables, diffs, build output, and detailed results. Always still speak a short summary. Calling again replaces the panel content.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Panel window title"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Markdown-formatted content to render in the panel"
+                        }
+                    },
+                    "required": ["title", "content"]
+                }
+            }
+        }));
+    }
+
+    if tools_config.ask_user {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "description": "Ask the user to choose from a short list of options when you need clarification before continuing. The choice appears in the orb and can be answered by click or voice. Use 2 to 4 concise options.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "The clarification question to ask"
+                        },
+                        "options": {
+                            "type": "array",
+                            "description": "Two to four answer options",
+                            "minItems": 2,
+                            "maxItems": 4,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {
+                                        "type": "string",
+                                        "description": "Short option label"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "Optional short explanation"
+                                    }
+                                },
+                                "required": ["label"]
+                            }
+                        }
+                    },
+                    "required": ["question", "options"]
+                }
+            }
+        }));
+    }
+
     if tools_config.run_command {
         tools.push(serde_json::json!({
             "type": "function",
