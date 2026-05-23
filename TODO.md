@@ -3,24 +3,27 @@
 Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
 Roadmap und Gesamtvision → `docs/VISION.md`.
 
-## Phase 1: Multi-Channel-Output (nächste Priorität)
+## Agent-Sessions (tmux-basiert)
 
-Implementierungsplan → `docs/PHASE1-PLAN.md`.
+- [ ] **Session-Cleanup beim App-Exit.** Offene tmux-Sessions beim Beenden
+  von Dexter ordentlich aufräumen (kill_session für alle aktiven Modi).
 
-- [ ] **`show_panel`-Tool.** Separates Fenster mit Markdown-Rendering
-  (react-markdown + remark-gfm). Für Dateilisten, Code, Tabellen, Diffs.
-  Modell spricht kurze Zusammenfassung, Details im Panel.
+- [ ] **Agent-Lifecycle erkennen.** Prüfen ob der Agent in der tmux-Session
+  noch läuft oder beendet wurde. Bei Exit zurück in Chat-Modus wechseln.
 
-- [ ] **Panel per Sprache schließen.** "Schließ das Panel" / "OK danke"
-  wird vor dem LLM-Call abgefangen → Panel zu, kein LLM-Roundtrip.
+- [ ] **Wiederverbindung nach Neustart.** Bestehende dexter-* tmux-Sessions
+  beim App-Start erkennen und Modus wiederherstellen.
 
-- [ ] **App-State-Tracking.** UI-State (Panel offen, Dialog aktiv) als
-  System-Message vor dem letzten User-Turn injizieren. Modell weiß, was
-  auf dem Bildschirm los ist.
+- [ ] **Terminal-Emulator konfigurierbar.** Aktuell hardcoded gnome-terminal,
+  sollte über Config wählbar sein (kitty, alacritty, wezterm etc.).
 
-- [ ] **`ask_user`-Tool.** Multiple-Choice-Dialoge inline im Orb.
-  Oneshot-Channel blockiert bis User per Klick oder Sprache antwortet
-  (A/B/C/D, Zahlwörter, Label-Match). 60s Timeout.
+- [ ] **macOS-Terminal-Integration.** Terminal.app oder iTerm2 statt
+  gnome-terminal. tmux läuft auf macOS nativ.
+
+## Visible Workspace (Phase 4 Ausbau)
+
+- [ ] **Rechtes Seitenpanel.** Persistentes Fenster neben dem Orb mit
+  aktuellem Modus, Agent-Status, und später Terminal-Output.
 
 ## Linux-Lücken
 
