@@ -5,6 +5,7 @@
 
 use crate::sandbox;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ToolsConfig {
@@ -70,7 +71,146 @@ fn default_tts_voice() -> String {
 }
 
 pub fn core_system_prompt() -> &'static str {
-    "You are a desktop voice assistant. Answer in the user's preferred language. Keep answers brief. Use available tools for current, local, or computer-specific information. If the user asks for date or time, use get_current_time. Do not claim you checked something unless you called the matching tool."
+    r#"You are Dexter, a desktop voice assistant. Your responses are spoken aloud via TTS.
+
+# Response style
+- Keep answers short: 1–3 sentences for simple questions, up to 5 for complex ones.
+- Use natural spoken language. No markdown, no bullet lists, no code blocks, no special characters — TTS reads them literally.
+- Never say "as an AI" or "I don't have access to". Use your tools instead.
+
+# Tool usage rules
+- ALWAYS call a tool when the question requires current, local, or external information. Never guess or recall from memory.
+- NEVER reuse a previous tool result — always call the tool again fresh. Time changes, clipboard changes, screen changes.
+- Call the tool BEFORE responding. Do not say "let me check" — just call the tool silently, then answer with the result.
+- If a question needs multiple tools, call all of them.
+- If no tool is needed (general knowledge, conversation, opinion), answer directly without tools.
+
+# When to use which tool
+- Date, time, weekday → get_current_time
+- "What did I copy", clipboard, "what's in my clipboard" → read_clipboard
+- "What's on my screen", "look at this", "read this" → take_screenshot
+- User references stored notes or documents → search_knowledge
+- "Open google.com", "go to..." → open_url
+- "What does this website say", "read this article" → web_fetch
+- "What apps are open", "is Firefox running" → list_running_apps
+- System tasks, file operations, checks → run_command
+
+# Common mistakes to avoid
+- Do NOT answer time/date questions from memory. ALWAYS call get_current_time.
+- Do NOT describe what the clipboard "probably" contains. ALWAYS call read_clipboard.
+- Do NOT say "I'll check" or "Let me look" — just call the tool and respond with the answer.
+- Do NOT wrap tool arguments in extra quotes or escape them.
+
+# Speech input awareness
+User input comes from speech-to-text and may contain transcription errors:
+- Paths may be spoken as words: "home dev" → ~/dev, "etc" → /etc, "user local bin" → /usr/local/bin
+- File/folder names may be misspelled, capitalized wrong, or run together.
+- When a path or name doesn't exist, use run_command with ls or find to check what similar names exist nearby, then use the best match.
+- Never give up with "folder not found" — actively search for what the user likely meant."#
+}
+
+static SYSTEM_INFO_CACHE: OnceLock<String> = OnceLock::new();
+
+pub fn system_info() -> &'static str {
+    SYSTEM_INFO_CACHE.get_or_init(|| {
+        let mut parts = Vec::new();
+
+        // User + Home
+        if let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("LOGNAME")) {
+            parts.push(format!("User: {}", user));
+        }
+        if let Some(home) = dirs::home_dir() {
+            parts.push(format!("Home: {}", home.display()));
+        }
+
+        // Hostname
+        if let Ok(hostname) = std::fs::read_to_string("/etc/hostname") {
+            parts.push(format!("Host: {}", hostname.trim()));
+        }
+
+        // OS
+        if let Ok(os_release) = std::fs::read_to_string("/etc/os-release") {
+            if let Some(pretty) = os_release
+                .lines()
+                .find(|l| l.starts_with("PRETTY_NAME="))
+                .and_then(|l| l.strip_prefix("PRETTY_NAME="))
+                .map(|v| v.trim_matches('"'))
+            {
+                parts.push(format!("OS: {}", pretty));
+            }
+        }
+
+        // Kernel
+        if let Ok(output) = std::process::Command::new("uname").arg("-r").output() {
+            if output.status.success() {
+                parts.push(format!(
+                    "Kernel: {}",
+                    String::from_utf8_lossy(&output.stdout).trim()
+                ));
+            }
+        }
+
+        // CPU
+        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+            if let Some(model) = cpuinfo
+                .lines()
+                .find(|l| l.starts_with("model name"))
+                .and_then(|l| l.split(':').nth(1))
+                .map(|v| v.trim())
+            {
+                let cores = cpuinfo
+                    .lines()
+                    .filter(|l| l.starts_with("processor"))
+                    .count();
+                parts.push(format!("CPU: {} ({} threads)", model, cores));
+            }
+        }
+
+        // RAM
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            if let Some(total_kb) = meminfo
+                .lines()
+                .find(|l| l.starts_with("MemTotal:"))
+                .and_then(|l| {
+                    l.split_whitespace()
+                        .nth(1)
+                        .and_then(|v| v.parse::<u64>().ok())
+                })
+            {
+                parts.push(format!("RAM: {} GB", total_kb / 1_048_576));
+            }
+        }
+
+        // GPU (nvidia-smi)
+        if let Ok(output) = std::process::Command::new("nvidia-smi")
+            .args([
+                "--query-gpu=name,memory.total",
+                "--format=csv,noheader,nounits",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let line = String::from_utf8_lossy(&output.stdout);
+                let line = line.trim();
+                if !line.is_empty() {
+                    if let Some((name, mem)) = line.split_once(',') {
+                        parts.push(format!("GPU: {} ({} MiB VRAM)", name.trim(), mem.trim()));
+                    }
+                }
+            }
+        }
+
+        // Shell
+        if let Ok(shell) = std::env::var("SHELL") {
+            parts.push(format!("Shell: {}", shell));
+        }
+
+        if parts.is_empty() {
+            "System info unavailable.".to_string()
+        } else {
+            parts.join("\n")
+        }
+    })
 }
 
 fn default_user_prompt() -> String {
@@ -175,16 +315,18 @@ impl Default for VoiceConfig {
 
 impl VoiceConfig {
     pub fn effective_system_prompt(&self) -> String {
+        let mut prompt = core_system_prompt().to_string();
+
+        prompt.push_str("\n\n# System environment\n");
+        prompt.push_str(system_info());
+
         let user_prompt = self.system_prompt.trim();
-        if user_prompt.is_empty() {
-            core_system_prompt().to_string()
-        } else {
-            format!(
-                "{}\n\nEditable user prompt:\n{}",
-                core_system_prompt(),
-                user_prompt
-            )
+        if !user_prompt.is_empty() {
+            prompt.push_str("\n\n# User instructions\n");
+            prompt.push_str(user_prompt);
         }
+
+        prompt
     }
 
     fn config_path() -> std::path::PathBuf {

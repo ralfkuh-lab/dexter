@@ -9,12 +9,14 @@ import { KnowledgeTab } from "./KnowledgeTab";
 export function Settings() {
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [corePrompt, setCorePrompt] = useState("");
+  const [systemInfo, setSystemInfo] = useState("");
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("config");
 
   useEffect(() => {
     invoke<VoiceConfig>("get_config").then(setConfig);
     invoke<string>("get_core_system_prompt").then(setCorePrompt);
+    invoke<string>("get_system_info").then(setSystemInfo);
   }, []);
 
   const save = async () => {
@@ -69,7 +71,7 @@ export function Settings() {
       {/* Body */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {tab === "config" && <ConfigTab config={config} setConfig={setConfig} />}
-        {tab === "prompt" && <PromptTab config={config} setConfig={setConfig} corePrompt={corePrompt} />}
+        {tab === "prompt" && <PromptTab config={config} setConfig={setConfig} corePrompt={corePrompt} systemInfo={systemInfo} />}
         {tab === "tools" && <ToolsTab config={config} setConfig={setConfig} />}
         {tab === "knowledge" && <KnowledgeTab />}
       </div>

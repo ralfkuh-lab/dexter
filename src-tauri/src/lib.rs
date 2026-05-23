@@ -204,6 +204,7 @@ pub fn run() {
             commands::stop_recording_and_process,
             commands::set_tts_enabled,
             commands::submit_text,
+            commands::get_system_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

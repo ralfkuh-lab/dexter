@@ -32,6 +32,12 @@ Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
   nicht, müsste Client-seitig), Echo-Cancellation gegen den eigenen TTS-
   Output. Erst Konzept skizzieren, dann bauen.
 
+- [ ] **`ask_user`-Tool für Rückfragen.** Wenn Dexter unsicher ist, was
+  gemeint ist (z.B. mehrdeutiger STT-Output, mehrere passende Dateien),
+  soll er per Tool eine Auswahl-/Rückfrage-UI im Frontend triggern können
+  statt verbal zurückzufragen. Braucht: Tauri-Command, Frontend-Dialog
+  (Modal oder Inline im Orb), Tool-Definition + Prompt-Instruktion.
+
 - [ ] **`show_info`-Tool für formatierte Anzeige.** Neues Tool, das Markdown
   entgegennimmt und in einem eigenen Fenster (oder Overlay-Panel im Orb-
   Fenster) gerendert anzeigt. Use-Cases: Tabellen, lange Listen, Code-

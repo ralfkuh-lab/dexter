@@ -1,7 +1,7 @@
 //! Alle `#[tauri::command]`-Funktionen — die Brücke vom Frontend zum Rust-Backend.
 
 use crate::backend::{refresh_ctx_max, register_ptt_shortcut, warmup_llm_async};
-use crate::config::core_system_prompt;
+use crate::config::{core_system_prompt, system_info};
 use crate::pipeline::{process_pipeline, process_text_input};
 use crate::state::ProcessingState;
 use crate::window::reveal_main_window;
@@ -18,6 +18,11 @@ pub fn get_config(state: tauri::State<AppState>) -> VoiceConfig {
 #[tauri::command]
 pub fn get_core_system_prompt() -> String {
     core_system_prompt().to_string()
+}
+
+#[tauri::command]
+pub fn get_system_info() -> String {
+    system_info().to_string()
 }
 
 #[tauri::command]

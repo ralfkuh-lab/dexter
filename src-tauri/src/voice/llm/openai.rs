@@ -2,7 +2,7 @@
 
 use super::{find_sentence_end, OllamaToolCall, OllamaToolCallOut, OllamaToolFunction, StreamResult, ToolCallSource};
 use crate::voice::{emit_llm_stats, trim_base_url, LlmStats};
-use crate::{core_system_prompt, ChatMessage, VoiceConfig};
+use crate::{ChatMessage, VoiceConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -125,20 +125,10 @@ pub(super) async fn chat_streaming(
 
     let mut openai_messages = vec![OpenAiMessage {
         role: "system".to_string(),
-        content: Some(core_system_prompt().to_string()),
+        content: Some(config.effective_system_prompt()),
         tool_calls: None,
         tool_call_id: None,
     }];
-
-    let user_prompt = config.system_prompt.trim();
-    if !user_prompt.is_empty() {
-        openai_messages.push(OpenAiMessage {
-            role: "developer".to_string(),
-            content: Some(user_prompt.to_string()),
-            tool_calls: None,
-            tool_call_id: None,
-        });
-    }
 
     for msg in messages {
         openai_messages.push(OpenAiMessage {
@@ -321,21 +311,12 @@ pub(super) async fn warmup(
     client: &reqwest::Client,
     config: &VoiceConfig,
 ) -> reqwest::Result<reqwest::Response> {
-    let user_prompt = config.system_prompt.trim();
     let mut messages = vec![OpenAiMessage {
         role: "system".to_string(),
-        content: Some(core_system_prompt().to_string()),
+        content: Some(config.effective_system_prompt()),
         tool_calls: None,
         tool_call_id: None,
     }];
-    if !user_prompt.is_empty() {
-        messages.push(OpenAiMessage {
-            role: "developer".to_string(),
-            content: Some(user_prompt.to_string()),
-            tool_calls: None,
-            tool_call_id: None,
-        });
-    }
     messages.push(OpenAiMessage {
         role: "user".to_string(),
         content: Some(".".to_string()),

@@ -5,10 +5,12 @@ export function PromptTab({
   config,
   setConfig,
   corePrompt,
+  systemInfo,
 }: {
   config: VoiceConfig;
   setConfig: (c: VoiceConfig) => void;
   corePrompt: string;
+  systemInfo: string;
 }) {
   return (
     <div className="flex flex-col gap-5 p-5 px-6 h-full">
@@ -19,6 +21,17 @@ export function PromptTab({
             readOnly
             rows={9}
             className="w-full bg-white/[0.025] border border-white/[0.06] text-white/45 px-3 py-2.5 rounded-lg text-[12px] font-mono outline-none resize-y min-h-[150px]"
+          />
+        </Field>
+      </FieldGroup>
+
+      <FieldGroup title="System Info (auto-generated)">
+        <Field label="Read Only">
+          <textarea
+            value={systemInfo}
+            readOnly
+            rows={6}
+            className="w-full bg-white/[0.025] border border-white/[0.06] text-white/45 px-3 py-2.5 rounded-lg text-[12px] font-mono outline-none resize-y min-h-[100px]"
           />
         </Field>
       </FieldGroup>
