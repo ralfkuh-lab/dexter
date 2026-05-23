@@ -10,6 +10,14 @@ Server, schickt den Text an einen Ollama-/llama.cpp-LLM-Server, streamt die Antw
 satzweise an einen Piper-TTS-Server und spielt die WAV-Chunks ab. Plus RAG (lokales
 SQLite) und Tools (Screenshot, Clipboard, Shell-Sandbox, Web-Fetch, …).
 
+## Projektziel / Vision
+
+**Endziel:** Voice-First Desktop Control — der Nutzer kann komplett per Sprache
+seinen Rechner bedienen, inklusive Coding-Sessions, ohne Tastatur oder Maus.
+Ausführliche Vision und Roadmap in **`docs/VISION.md`**, aktueller
+Implementierungsplan in **`docs/PHASE1-PLAN.md`**. Jede Session sollte das
+Endziel im Blick behalten und Features darauf ausrichten.
+
 **Wichtig:** Die Server-Stack-Infrastruktur (Whisper, llama.cpp, Piper) liegt in
 einem **separaten Repo**: `/home/ralf/dev/local-ai/voice-assistant-stack/`. Dort
 sind `start-stack.sh`, `stop-stack.sh`, `status.sh` und Docs zu Modellwahl,

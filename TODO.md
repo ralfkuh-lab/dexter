@@ -1,46 +1,43 @@
 # TODO
 
 Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
+Roadmap und Gesamtvision → `docs/VISION.md`.
 
-## Linux-Lücken (aktuell nur Stub oder kaputt)
+## Phase 1: Multi-Channel-Output (nächste Priorität)
+
+Implementierungsplan → `docs/PHASE1-PLAN.md`.
+
+- [ ] **`show_panel`-Tool.** Separates Fenster mit Markdown-Rendering
+  (react-markdown + remark-gfm). Für Dateilisten, Code, Tabellen, Diffs.
+  Modell spricht kurze Zusammenfassung, Details im Panel.
+
+- [ ] **Panel per Sprache schließen.** "Schließ das Panel" / "OK danke"
+  wird vor dem LLM-Call abgefangen → Panel zu, kein LLM-Roundtrip.
+
+- [ ] **App-State-Tracking.** UI-State (Panel offen, Dialog aktiv) als
+  System-Message vor dem letzten User-Turn injizieren. Modell weiß, was
+  auf dem Bildschirm los ist.
+
+- [ ] **`ask_user`-Tool.** Multiple-Choice-Dialoge inline im Orb.
+  Oneshot-Channel blockiert bis User per Klick oder Sprache antwortet
+  (A/B/C/D, Zahlwörter, Label-Match). 60s Timeout.
+
+## Linux-Lücken
 
 - [ ] **Active-Monitor-Detection auf Linux.** macOS hat das Python/Quartz-
-  Snippet. Linux-Screenshot nimmt aktuell den ganzen virtuellen Desktop
-  (Default des aufgerufenen Tools). Multi-Monitor-Auswahl wäre per
-  `grim -o <output>` (Wayland) bzw. `xrandr`-Geometrie + `import -window`
-  oder Crop nach dem Capture machbar.
+  Snippet. Linux-Screenshot nimmt aktuell den ganzen virtuellen Desktop.
+  Multi-Monitor-Auswahl wäre per `xrandr`-Geometrie machbar.
 
 ## Aufräumen / kleine Refactorings
 
 - [ ] **macOS-Pfade weiter pflegen, aber ungetestet.** Multi-Platform bleibt
-  Ziel, aktive Entwicklung ist Linux. macOS-`cfg`-Branches in `tools.rs`,
-  `sandbox.rs` und `lib.rs` bewusst behalten. Bei nächster Mac-Session erst
-  durchsmoken bevor irgendwas committed wird, das daran rührt.
+  Ziel, aktive Entwicklung ist Linux. macOS-`cfg`-Branches bewusst behalten.
 
 ## Features / Ideen (nicht dringend)
 
-- [ ] **Diagnose-Anzeige in Settings:** aktueller Config-Pfad
-  (`~/.config/voice-assistant/config.json`) und Erreichbarkeit der drei
-  Endpunkte (STT/LLM/TTS) live in der UI.
+- [ ] **Diagnose-Anzeige in Settings:** Config-Pfad und Endpunkt-Health live.
 
-- [ ] **Mikrofon-Device wählbar machen.** Aktuell nimmt `cpal` das System-
-  Default-Input. Dropdown in Settings mit `cpal::Host::input_devices()`.
+- [ ] **Mikrofon-Device wählbar machen.** Dropdown in Settings.
 
-- [ ] **Freies-Sprechen-Modus (Mikro immer an).** Toggle (Mikro-Icon) nahe
-  Orb + Menüpunkt. Offene Fragen: VAD-Strategie (Silero, WebRTC, oder
-  Energy-Schwellwert in cpal), wer bestimmt Satzende (STT-Endpoint kann das
-  nicht, müsste Client-seitig), Echo-Cancellation gegen den eigenen TTS-
-  Output. Erst Konzept skizzieren, dann bauen.
-
-- [ ] **`ask_user`-Tool für Rückfragen.** Wenn Dexter unsicher ist, was
-  gemeint ist (z.B. mehrdeutiger STT-Output, mehrere passende Dateien),
-  soll er per Tool eine Auswahl-/Rückfrage-UI im Frontend triggern können
-  statt verbal zurückzufragen. Braucht: Tauri-Command, Frontend-Dialog
-  (Modal oder Inline im Orb), Tool-Definition + Prompt-Instruktion.
-
-- [ ] **`show_info`-Tool für formatierte Anzeige.** Neues Tool, das Markdown
-  entgegennimmt und in einem eigenen Fenster (oder Overlay-Panel im Orb-
-  Fenster) gerendert anzeigt. Use-Cases: Tabellen, lange Listen, Code-
-  Snippets, Ergebnisse aus Web-Fetch/Shell. Frontend braucht einen Renderer
-  (z.B. react-markdown + Prism). Sprachausgabe parallel gibt eine knappe
-  Zusammenfassung, das Fenster zeigt das Detail.
+- [ ] **Freies-Sprechen-Modus (Mikro immer an).** VAD-Strategie, Satzende-
+  Detection, Echo-Cancellation. Erst Konzept, dann bauen.
