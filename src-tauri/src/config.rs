@@ -100,6 +100,7 @@ pub fn core_system_prompt() -> &'static str {
 - Do NOT describe what the clipboard "probably" contains. ALWAYS call read_clipboard.
 - Do NOT say "I'll check" or "Let me look" — just call the tool and respond with the answer.
 - Do NOT wrap tool arguments in extra quotes or escape them.
+- When you receive a tool result, use ONLY that result — ignore any older results for the same tool that appear earlier in the conversation history. The latest result is always the correct one.
 
 # Speech input awareness
 User input comes from speech-to-text and may contain transcription errors:
