@@ -15,6 +15,11 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tokio_util::sync::CancellationToken;
 
 #[tauri::command]
+pub fn get_app_mode(state: tauri::State<AppState>) -> String {
+    state.app_mode.lock().unwrap().to_string()
+}
+
+#[tauri::command]
 pub fn get_config(state: tauri::State<AppState>) -> VoiceConfig {
     state.config.lock().unwrap().clone()
 }

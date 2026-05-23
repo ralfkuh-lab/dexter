@@ -28,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
+            app_mode: Mutex::new(state::AppMode::default()),
             messages: Mutex::new(Vec::new()),
             config: Mutex::new(VoiceConfig::load()),
             ui_state: Mutex::new(state::UiState::default()),
@@ -193,6 +194,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_app_mode,
             commands::get_config,
             commands::get_core_system_prompt,
             commands::get_ctx_max,

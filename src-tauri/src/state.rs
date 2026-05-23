@@ -89,7 +89,31 @@ pub struct ConsoleError {
     pub stack: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppMode {
+    #[default]
+    Chat,
+    CodexSession,
+    ClaudeSession,
+    OpencodeSession,
+    AgySession,
+}
+
+impl std::fmt::Display for AppMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Chat => write!(f, "chat"),
+            Self::CodexSession => write!(f, "codex_session"),
+            Self::ClaudeSession => write!(f, "claude_session"),
+            Self::OpencodeSession => write!(f, "opencode_session"),
+            Self::AgySession => write!(f, "agy_session"),
+        }
+    }
+}
+
 pub struct AppState {
+    pub app_mode: Mutex<AppMode>,
     pub messages: Mutex<Vec<ChatMessage>>,
     pub config: Mutex<VoiceConfig>,
     pub ui_state: Mutex<UiState>,

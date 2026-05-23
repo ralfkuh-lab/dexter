@@ -108,6 +108,7 @@ struct WaitResponse {
 #[derive(Serialize)]
 struct AutomationStateResponse {
     ok: bool,
+    app_mode: String,
     processing_stage: String,
     processing_text: String,
     is_recording: bool,
@@ -341,9 +342,11 @@ fn snapshot_state(app: &AppHandle) -> AutomationStateResponse {
     let llm_model = config.llm_model.clone();
     drop(config);
     let is_recording = *state.is_recording.lock().unwrap();
+    let app_mode = state.app_mode.lock().unwrap().to_string();
 
     AutomationStateResponse {
         ok: true,
+        app_mode,
         processing_stage: processing.stage,
         processing_text: processing.text,
         is_recording,
