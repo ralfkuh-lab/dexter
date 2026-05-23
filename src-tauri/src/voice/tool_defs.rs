@@ -224,5 +224,26 @@ pub fn build_tools(tools_config: &ToolsConfig) -> Vec<serde_json::Value> {
         }));
     }
 
+    if tools_config.switch_mode {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "switch_mode",
+                "description": "Switch Dexter's application mode. Use when the user wants to start a coding session with a CLI agent (claude, codex, agy, opencode) or return to normal chat mode. This opens the agent in a visible terminal window.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "enum": ["chat", "claude_session", "codex_session", "agy_session", "opencode_session"],
+                            "description": "The mode to switch to. 'chat' for normal conversation, '*_session' to route voice to that CLI agent."
+                        }
+                    },
+                    "required": ["mode"]
+                }
+            }
+        }));
+    }
+
     tools
 }

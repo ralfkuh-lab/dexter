@@ -29,6 +29,8 @@ pub struct ToolsConfig {
     pub show_panel: bool,
     #[serde(default = "default_true")]
     pub ask_user: bool,
+    #[serde(default = "default_true")]
+    pub switch_mode: bool,
 }
 
 fn default_true() -> bool {
@@ -48,6 +50,7 @@ impl Default for ToolsConfig {
             web_fetch: false,
             show_panel: true,
             ask_user: true,
+            switch_mode: true,
         }
     }
 }

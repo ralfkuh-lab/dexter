@@ -2,8 +2,8 @@
 
 use crate::dialog_manager::clear_pending_dialog;
 use crate::panel_manager::show_panel;
-use crate::state::{emit_processing, DialogOption, DialogPayload, ProcessingState};
-use crate::{sandbox, tools, voice, AppState, ToolsConfig, VoiceConfig};
+use crate::state::{emit_processing, record_automation_event, AppMode, DialogOption, DialogPayload, ProcessingState};
+use crate::{agent_session, sandbox, tools, voice, AppState, ToolsConfig, VoiceConfig};
 use tauri::{Emitter, Manager};
 
 pub async fn execute_tool(
@@ -254,6 +254,41 @@ pub async fn execute_tool(
                     let _ = app.emit("dismiss_dialog", ());
                     "No selection received before timeout.".to_string()
                 }
+            }
+        }
+        "switch_mode" => {
+            let mode_str = tool_call
+                .function
+                .arguments
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("chat");
+
+            let mode: AppMode = serde_json::from_value(
+                serde_json::Value::String(mode_str.to_string()),
+            )
+            .unwrap_or(AppMode::Chat);
+
+            let label = mode.to_string();
+            {
+                let state = app.state::<AppState>();
+                *state.app_mode.lock().unwrap() = mode.clone();
+            }
+            let _ = app.emit("app_mode_changed", &label);
+            record_automation_event(app, "mode.changed", &label);
+
+            if mode != AppMode::Chat {
+                let working_dir =
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                match agent_session::ensure_session(&mode, &working_dir).await {
+                    Ok(name) => {
+                        let _ = agent_session::open_terminal(&name).await;
+                        format!("Modus auf {} gewechselt. Terminal geöffnet.", label)
+                    }
+                    Err(e) => format!("Modus auf {} gewechselt, aber Terminal-Start fehlgeschlagen: {}", label, e),
+                }
+            } else {
+                format!("Zurück im Chat-Modus.")
             }
         }
         "run_command" => {
