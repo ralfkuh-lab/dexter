@@ -217,6 +217,27 @@ async fn run_llm_pipeline(
         return Ok(());
     }
 
+    {
+        let mode = app.state::<AppState>().app_mode.lock().unwrap().clone();
+        if mode != crate::state::AppMode::Chat {
+            let msg = format!(
+                "Session-Routing für {} ist noch nicht implementiert. \
+                 Sage \"Kommando Chat\" um zurück in den Chat-Modus zu wechseln.",
+                mode
+            );
+            let _ = app.emit("assistant_text", &msg);
+            emit_processing(
+                &app,
+                ProcessingState {
+                    stage: "idle".to_string(),
+                    text: String::new(),
+                },
+            )
+            .map_err(|e: tauri::Error| e.to_string())?;
+            return Ok(());
+        }
+    }
+
     // Add user message
     {
         app.state::<AppState>()
