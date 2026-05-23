@@ -7,6 +7,7 @@ use tauri::{
 };
 use tokio_util::sync::CancellationToken;
 
+mod automation;
 mod backend;
 mod commands;
 mod config;
@@ -31,6 +32,9 @@ pub fn run() {
             config: Mutex::new(VoiceConfig::load()),
             ui_state: Mutex::new(state::UiState::default()),
             pending_dialog: Mutex::new(None),
+            processing: Mutex::new(state::ProcessingState::default()),
+            automation_events: Mutex::new(Vec::new()),
+            console_errors: Mutex::new(Vec::new()),
             rag_store: rag::RagStore::new().expect("Failed to initialize RAG store"),
             audit_log: Mutex::new(sandbox::AuditLog::new()),
             recorded_samples: Mutex::new(Vec::new()),
@@ -129,6 +133,7 @@ pub fn run() {
                 .hotkey
                 .clone();
             backend::register_ptt_shortcut(app.handle(), &initial_hotkey)?;
+            automation::start(app.handle().clone());
 
             // Probe the LLM backend for max context window (non-blocking).
             backend::refresh_ctx_max(app.handle());
@@ -209,6 +214,7 @@ pub fn run() {
             commands::set_tts_enabled,
             commands::submit_text,
             commands::get_system_info,
+            commands::automation_console_error,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

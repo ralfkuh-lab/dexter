@@ -27,6 +27,7 @@ reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 tokio-stream = "0.1"
 base64 = "0.22"
 tokio = { version = "1", features = ["full"] }
+axum = "0.8"
 tauri-plugin-autostart = "2.5.1"
 cpal = "0.15"
 dirs = "5"
@@ -37,4 +38,3 @@ tokio-util = { version = "0.7", features = ["rt"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-

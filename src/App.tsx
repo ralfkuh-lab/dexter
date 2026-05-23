@@ -1,9 +1,12 @@
 import "./App.css";
+import { useAutomationConsoleLogging } from "./automation/console";
 import { Orb } from "./orb/Orb";
 import { Panel } from "./panel/Panel";
 import { Settings } from "./settings/Settings";
 
 function App() {
+  useAutomationConsoleLogging();
+
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view");
 

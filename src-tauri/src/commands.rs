@@ -5,7 +5,9 @@ use crate::config::{core_system_prompt, system_info};
 use crate::pipeline::{
     has_pending_dialog, process_pipeline, process_text_input, resolve_pending_dialog_selection,
 };
-use crate::state::{PanelInfo, ProcessingState};
+use crate::state::{
+    emit_processing, record_console_error, update_processing_state, PanelInfo, ProcessingState,
+};
 use crate::window::reveal_main_window;
 use crate::{voice, AppState, ChatMessage, VoiceConfig};
 use tauri::{Emitter, Manager};
@@ -25,6 +27,16 @@ pub fn get_core_system_prompt() -> String {
 #[tauri::command]
 pub fn get_system_info() -> String {
     system_info().to_string()
+}
+
+#[tauri::command]
+pub fn automation_console_error(
+    app: tauri::AppHandle,
+    message: String,
+    source: Option<String>,
+    stack: Option<String>,
+) {
+    record_console_error(&app, message, source, stack);
 }
 
 #[tauri::command]
@@ -226,6 +238,13 @@ pub fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
 
     state.recorded_samples.lock().unwrap().clear();
     *state.is_recording.lock().unwrap() = true;
+    update_processing_state(
+        &app,
+        ProcessingState {
+            stage: "listening".to_string(),
+            text: String::new(),
+        },
+    );
 
     let app_handle = app.clone();
     // Spawn recording on a dedicated thread (cpal::Stream isn't Send).
@@ -283,8 +302,8 @@ pub fn submit_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
         if let Err(e) = process_text_input(app_handle.clone(), text, config, cancel_token).await {
             if e != "interrupted" {
                 eprintln!("Text pipeline error: {}", e);
-                let _ = app_handle.emit(
-                    "processing",
+                let _ = emit_processing(
+                    &app_handle,
                     ProcessingState {
                         stage: "error".to_string(),
                         text: e,
@@ -302,6 +321,13 @@ pub fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
 
     *state.is_recording.lock().unwrap() = false;
+    update_processing_state(
+        &app,
+        ProcessingState {
+            stage: "transcribing".to_string(),
+            text: String::new(),
+        },
+    );
 
     // Give a moment for the recording thread to finish writing samples.
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -311,8 +337,8 @@ pub fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
     let config = state.config.lock().unwrap().clone();
 
     if samples.is_empty() {
-        let _ = app.emit(
-            "processing",
+        let _ = emit_processing(
+            &app,
             ProcessingState {
                 stage: "idle".into(),
                 text: String::new(),
@@ -335,8 +361,8 @@ pub fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
         {
             if e != "interrupted" {
                 eprintln!("Pipeline error: {}", e);
-                let _ = app_handle.emit(
-                    "processing",
+                let _ = emit_processing(
+                    &app_handle,
                     ProcessingState {
                         stage: "error".to_string(),
                         text: e,

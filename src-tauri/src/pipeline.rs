@@ -1,6 +1,9 @@
 //! Audio-→-STT-→-LLM-→-TTS-Pipeline plus PTT-Handler und Tool-Ausführung.
 
-use crate::state::{AudioChunk, DialogOption, DialogPayload, PanelInfo, ProcessingState};
+use crate::state::{
+    emit_processing, update_processing_state, AudioChunk, DialogOption, DialogPayload, PanelInfo,
+    ProcessingState,
+};
 use crate::window::reveal_main_window;
 use crate::{sandbox, tools, voice, AppState, ChatMessage, ToolsConfig, VoiceConfig};
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
@@ -21,6 +24,13 @@ pub fn handle_ptt_press(app: &tauri::AppHandle) {
         let _ = app.emit("pipeline_interrupted", ());
     }
     reveal_main_window(app);
+    update_processing_state(
+        app,
+        ProcessingState {
+            stage: "listening".to_string(),
+            text: String::new(),
+        },
+    );
     let _ = app.emit("hotkey_pressed", ());
 
     let state = app.state::<AppState>();
@@ -38,6 +48,13 @@ pub fn handle_ptt_press(app: &tauri::AppHandle) {
 }
 
 pub fn handle_ptt_release(app: &tauri::AppHandle) {
+    update_processing_state(
+        app,
+        ProcessingState {
+            stage: "transcribing".to_string(),
+            text: String::new(),
+        },
+    );
     let _ = app.emit("hotkey_released", ());
 
     let state = app.state::<AppState>();
@@ -54,8 +71,8 @@ pub fn handle_ptt_release(app: &tauri::AppHandle) {
         let config = state.config.lock().unwrap().clone();
 
         if samples.is_empty() {
-            let _ = app_clone.emit(
-                "processing",
+            let _ = emit_processing(
+                &app_clone,
                 ProcessingState {
                     stage: "idle".to_string(),
                     text: String::new(),
@@ -76,8 +93,8 @@ pub fn handle_ptt_release(app: &tauri::AppHandle) {
             {
                 if e != "interrupted" {
                     eprintln!("Pipeline error: {}", e);
-                    let _ = app_clone.emit(
-                        "processing",
+                    let _ = emit_processing(
+                        &app_clone,
                         ProcessingState {
                             stage: "error".to_string(),
                             text: e,
@@ -97,8 +114,8 @@ pub async fn process_pipeline(
     cancel: CancellationToken,
 ) -> Result<(), String> {
     // Stage 1: Transcribe
-    app.emit(
-        "processing",
+    emit_processing(
+        &app,
         ProcessingState {
             stage: "transcribing".to_string(),
             text: "Transcribing...".to_string(),
@@ -116,8 +133,8 @@ pub async fn process_pipeline(
     }
 
     if transcript.trim().is_empty() {
-        app.emit(
-            "processing",
+        emit_processing(
+            &app,
             ProcessingState {
                 stage: "idle".to_string(),
                 text: String::new(),
@@ -154,8 +171,8 @@ async fn run_llm_pipeline(
     config: VoiceConfig,
     cancel: CancellationToken,
 ) -> Result<(), String> {
-    app.emit(
-        "processing",
+    emit_processing(
+        &app,
         ProcessingState {
             stage: "transcribed".to_string(),
             text: transcript.clone(),
@@ -164,8 +181,8 @@ async fn run_llm_pipeline(
     .map_err(|e: tauri::Error| e.to_string())?;
 
     if handle_pending_dialog_answer(&app, &transcript) {
-        app.emit(
-            "processing",
+        emit_processing(
+            &app,
             ProcessingState {
                 stage: "idle".to_string(),
                 text: String::new(),
@@ -176,8 +193,8 @@ async fn run_llm_pipeline(
     }
 
     if handle_ui_command(&app, &transcript) {
-        app.emit(
-            "processing",
+        emit_processing(
+            &app,
             ProcessingState {
                 stage: "idle".to_string(),
                 text: String::new(),
@@ -202,8 +219,8 @@ async fn run_llm_pipeline(
     }
 
     // Stage 2: LLM with tool calling → streaming TTS
-    app.emit(
-        "processing",
+    emit_processing(
+        &app,
         ProcessingState {
             stage: "thinking".to_string(),
             text: "Thinking...".to_string(),
@@ -338,8 +355,8 @@ async fn run_llm_pipeline(
                                     return Err("interrupted".to_string());
                                 }
 
-                                let _ = app.emit(
-                                    "processing",
+                                let _ = emit_processing(
+                                    &app,
                                     ProcessingState {
                                         stage: "tool_call".to_string(),
                                         text: tool_call.function.name.clone(),
@@ -378,8 +395,8 @@ async fn run_llm_pipeline(
                                     return Err("interrupted".to_string());
                                 }
 
-                                let _ = app.emit(
-                                    "processing",
+                                let _ = emit_processing(
+                                    &app,
                                     ProcessingState {
                                         stage: "tool_call".to_string(),
                                         text: tool_call.function.name.clone(),
@@ -397,8 +414,8 @@ async fn run_llm_pipeline(
                             }
                         }
 
-                        let _ = app.emit(
-                            "processing",
+                        let _ = emit_processing(
+                            &app,
                             ProcessingState {
                                 stage: "thinking".to_string(),
                                 text: "Thinking...".to_string(),
@@ -445,8 +462,8 @@ async fn run_llm_pipeline(
         full_text.push_str(&sentence);
         full_text.push(' ');
 
-        app.emit(
-            "processing",
+        emit_processing(
+            &app,
             ProcessingState {
                 stage: "speaking".to_string(),
                 text: full_text.trim().to_string(),
@@ -516,6 +533,14 @@ async fn run_llm_pipeline(
             tool_call_id: None,
         });
 
+    update_processing_state(
+        &app,
+        ProcessingState {
+            stage: "idle".to_string(),
+            text: String::new(),
+        },
+    );
+
     Ok(())
 }
 
@@ -578,8 +603,8 @@ fn handle_pending_dialog_answer(app: &tauri::AppHandle, transcript: &str) -> boo
     if let Some(selected) = selected {
         let _ = resolve_pending_dialog_selection(app, &selected);
     } else {
-        let _ = app.emit(
-            "processing",
+        let _ = emit_processing(
+            app,
             ProcessingState {
                 stage: "idle".to_string(),
                 text: String::new(),
@@ -862,8 +887,8 @@ async fn execute_tool(
                 .and_then(|v| v.as_u64())
                 .map(|n| n as u32);
 
-            let _ = app.emit(
-                "processing",
+            let _ = emit_processing(
+                app,
                 ProcessingState {
                     stage: "thinking".to_string(),
                     text: "Looking at your screen...".to_string(),
@@ -1054,8 +1079,8 @@ async fn execute_tool(
             if command.is_empty() {
                 "No command provided.".to_string()
             } else {
-                let _ = app.emit(
-                    "processing",
+                let _ = emit_processing(
+                    app,
                     ProcessingState {
                         stage: "thinking".to_string(),
                         text: format!("Running: {}", command),

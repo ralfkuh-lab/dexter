@@ -2,8 +2,10 @@
 
 use crate::voice;
 use crate::{rag, sandbox, VoiceConfig};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
+use tauri::{Emitter, Manager};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -11,6 +13,15 @@ use tokio_util::sync::CancellationToken;
 pub struct ProcessingState {
     pub stage: String,
     pub text: String,
+}
+
+impl Default for ProcessingState {
+    fn default() -> Self {
+        Self {
+            stage: "idle".to_string(),
+            text: String::new(),
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -61,11 +72,31 @@ pub struct DialogState {
     pub responder: oneshot::Sender<String>,
 }
 
+#[derive(Clone, Serialize)]
+pub struct AutomationEvent {
+    pub ts: String,
+    pub kind: String,
+    pub message: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ConsoleError {
+    pub ts: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub stack: Option<String>,
+}
+
 pub struct AppState {
     pub messages: Mutex<Vec<ChatMessage>>,
     pub config: Mutex<VoiceConfig>,
     pub ui_state: Mutex<UiState>,
     pub pending_dialog: Mutex<Option<DialogState>>,
+    pub processing: Mutex<ProcessingState>,
+    pub automation_events: Mutex<Vec<AutomationEvent>>,
+    pub console_errors: Mutex<Vec<ConsoleError>>,
     pub rag_store: rag::RagStore,
     pub audit_log: Mutex<sandbox::AuditLog>,
     /// Audio samples collected by the recording thread.
@@ -79,4 +110,52 @@ pub struct AppState {
     /// Last emitted LLM stats, so the frontend can recover them on (re-)mount
     /// even if the event fired before it subscribed (e.g. warmup during setup).
     pub last_stats: Mutex<Option<voice::LlmStats>>,
+}
+
+pub fn update_processing_state(app: &tauri::AppHandle, processing: ProcessingState) {
+    let state = app.state::<AppState>();
+    *state.processing.lock().unwrap() = processing;
+}
+
+pub fn emit_processing(
+    app: &tauri::AppHandle,
+    processing: ProcessingState,
+) -> Result<(), tauri::Error> {
+    update_processing_state(app, processing.clone());
+    app.emit("processing", processing)
+}
+
+pub fn record_automation_event(app: &tauri::AppHandle, kind: &str, message: impl Into<String>) {
+    let state = app.state::<AppState>();
+    let mut events = state.automation_events.lock().unwrap();
+    events.push(AutomationEvent {
+        ts: Utc::now().to_rfc3339(),
+        kind: kind.to_string(),
+        message: message.into(),
+    });
+    trim_oldest(&mut events, 200);
+}
+
+pub fn record_console_error(
+    app: &tauri::AppHandle,
+    message: impl Into<String>,
+    source: Option<String>,
+    stack: Option<String>,
+) {
+    let state = app.state::<AppState>();
+    let mut errors = state.console_errors.lock().unwrap();
+    errors.push(ConsoleError {
+        ts: Utc::now().to_rfc3339(),
+        message: message.into(),
+        source,
+        stack,
+    });
+    trim_oldest(&mut errors, 100);
+}
+
+fn trim_oldest<T>(items: &mut Vec<T>, max_len: usize) {
+    if items.len() > max_len {
+        let overflow = items.len() - max_len;
+        items.drain(0..overflow);
+    }
 }
