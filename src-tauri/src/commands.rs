@@ -124,6 +124,11 @@ pub fn get_panel_content(state: tauri::State<AppState>) -> Option<PanelInfo> {
 }
 
 #[tauri::command]
+pub async fn show_debug_panel(app: tauri::AppHandle, title: String, content: String) -> Result<(), String> {
+    crate::panel_manager::show_panel(&app, title, content).await
+}
+
+#[tauri::command]
 pub fn resolve_dialog(app: tauri::AppHandle, selected: String) -> Result<(), String> {
     resolve_pending_dialog_selection(&app, &selected).map(|_| ())
 }

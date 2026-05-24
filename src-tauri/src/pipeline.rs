@@ -9,8 +9,15 @@ use crate::state::{
 use crate::tool_executor::{execute_tool, forced_tool_for_transcript};
 use crate::window::reveal_main_window;
 use crate::{voice, AppState, ChatMessage, VoiceConfig};
+use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tokio_util::sync::CancellationToken;
+
+#[derive(Clone, Serialize)]
+struct DebugEvent {
+    summary: String,
+    detail: String,
+}
 
 pub use crate::dialog_manager::{has_pending_dialog, resolve_pending_dialog_selection};
 
@@ -293,16 +300,26 @@ async fn run_llm_pipeline(
                 }
 
                 if config.debug_bubbles {
+                    let msgs_json = serde_json::to_string_pretty(&all_msgs).unwrap_or_default();
                     let _ = app.emit(
                         "llm_debug",
-                        format!(
-                            "LLM request: provider={}, model={}, messages={}, tools={}, forced_tool={}",
-                            config.llm_provider,
-                            config.llm_model,
-                            all_msgs.len(),
-                            tools.len(),
-                            forced_tool_next.as_deref().unwrap_or("none")
-                        ),
+                        DebugEvent {
+                            summary: format!(
+                                "→ LLM {} · {} msgs · {} tools{}",
+                                config.llm_model,
+                                all_msgs.len(),
+                                tools.len(),
+                                forced_tool_next.as_deref().map(|t| format!(" · forced={}", t)).unwrap_or_default()
+                            ),
+                            detail: format!("## LLM Request\n\n**Provider:** {}\n**Model:** {}\n**Messages:** {}\n**Tools:** {}\n**Forced tool:** {}\n\n### Messages\n\n```json\n{}\n```",
+                                config.llm_provider,
+                                config.llm_model,
+                                all_msgs.len(),
+                                tools.len(),
+                                forced_tool_next.as_deref().unwrap_or("none"),
+                                msgs_json
+                            ),
+                        },
                     );
                 }
 
@@ -319,10 +336,10 @@ async fn run_llm_pipeline(
                         if config.debug_bubbles {
                             let _ = app.emit(
                                 "llm_debug",
-                                format!(
-                                    "LLM response: content only, {} chars",
-                                    text.chars().count()
-                                ),
+                                DebugEvent {
+                                    summary: format!("← content · {} chars", text.chars().count()),
+                                    detail: format!("## LLM Response (Content)\n\n{}", text),
+                                },
                             );
                         }
                         return Ok::<String, String>(text);
@@ -341,14 +358,34 @@ async fn run_llm_pipeline(
                             .collect::<Vec<_>>()
                             .join(", ");
                         if config.debug_bubbles {
+                            let args_summary: Vec<String> = tool_calls.iter().map(|tc| {
+                                let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
+                                if tc.function.name == "run_command" {
+                                    let cmd = tc.function.arguments.get("command").and_then(|v| v.as_str()).unwrap_or("?");
+                                    format!("run_command: `{}`", cmd)
+                                } else {
+                                    let short = if args_str.len() > 60 { format!("{}…", &args_str[..57]) } else { args_str.clone() };
+                                    format!("{}: {}", tc.function.name, short)
+                                }
+                            }).collect();
+                            let calls_json = serde_json::to_string_pretty(&tool_calls.iter().map(|tc| {
+                                serde_json::json!({
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                    "id": tc.id,
+                                })
+                            }).collect::<Vec<_>>()).unwrap_or_default();
                             let _ = app.emit(
                                 "llm_debug",
-                                format!(
-                                    "LLM response: tool_calls=[{}], preamble_chars={}, source={:?}",
-                                    names,
-                                    preamble.chars().count(),
-                                    source
-                                ),
+                                DebugEvent {
+                                    summary: format!("← {}", args_summary.join(" · ")),
+                                    detail: format!("## Tool Calls\n\n**Source:** {:?}\n**Preamble:** {} chars\n\n```json\n{}\n```{}",
+                                        source,
+                                        preamble.chars().count(),
+                                        calls_json,
+                                        if preamble.is_empty() { String::new() } else { format!("\n\n### Preamble\n\n{}", preamble) }
+                                    ),
+                                },
                             );
                         }
 
@@ -442,9 +479,13 @@ async fn run_llm_pipeline(
             }
 
             if config.debug_bubbles {
+                let msgs_json = serde_json::to_string_pretty(&all_msgs).unwrap_or_default();
                 let _ = app.emit(
                     "llm_debug",
-                    "LLM final request: tools disabled after max rounds",
+                    DebugEvent {
+                        summary: format!("→ LLM {} · {} msgs · no tools (max rounds)", config.llm_model, all_msgs.len()),
+                        detail: format!("## LLM Final Request (no tools)\n\n**Messages:** {}\n\n```json\n{}\n```", all_msgs.len(), msgs_json),
+                    },
                 );
             }
             let result = voice::chat_streaming(&app, &config, &all_msgs, &[], None, &sentence_tx)

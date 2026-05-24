@@ -80,6 +80,12 @@ export interface ChatBubble {
   role: "user" | "assistant" | "status" | "tool" | "debug";
   text: string;
   id: number;
+  detail?: string;
+}
+
+export interface DebugEvent {
+  summary: string;
+  detail: string;
 }
 
 export type SettingsTab = "config" | "prompt" | "tools" | "knowledge";

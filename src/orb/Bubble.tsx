@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { ChatBubble, TOOL_LABEL_MAP } from "../types";
 
 export function Bubble({ bubble }: { bubble: ChatBubble }) {
@@ -34,9 +35,21 @@ export function Bubble({ bubble }: { bubble: ChatBubble }) {
   }
 
   if (bubble.role === "debug") {
+    const hasDetail = !!bubble.detail;
+    const openDetail = () => {
+      if (!bubble.detail) return;
+      invoke("show_debug_panel", { title: "Debug Detail", content: bubble.detail }).catch(() => {});
+    };
     return (
       <div className="self-stretch animate-fade-in">
-        <div className="px-3 py-2 rounded-md bg-[#101016] border border-white/[0.06] text-cyan-200/70 text-[10px] leading-relaxed font-mono break-words">
+        <div
+          onClick={hasDetail ? openDetail : undefined}
+          className={`px-3 py-1.5 rounded-md bg-[#101016] border border-white/[0.06] text-[10px] leading-relaxed font-mono break-words ${
+            hasDetail
+              ? "cursor-pointer hover:border-cyan-500/30 hover:bg-[#141420] transition-colors text-cyan-200/70"
+              : "text-cyan-200/50"
+          }`}
+        >
           {bubble.text}
         </div>
       </div>

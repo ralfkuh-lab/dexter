@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AudioChunk, ChatBubble, DialogPayload, LlmStats, ProcessingState, VoiceConfig } from "../types";
+import { AudioChunk, ChatBubble, DebugEvent, DialogPayload, LlmStats, ProcessingState, VoiceConfig } from "../types";
 import { StatsBar } from "./StatsBar";
 import { ModeBar } from "./ModeBar";
 import { Bubble } from "./Bubble";
@@ -76,8 +76,8 @@ export function Orb() {
     bubblesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [bubbles]);
 
-  const addBubble = (role: ChatBubble["role"], text: string) => {
-    setBubbles((prev) => [...prev, { role, text, id: bubbleId++ }]);
+  const addBubble = (role: ChatBubble["role"], text: string, detail?: string) => {
+    setBubbles((prev) => [...prev, { role, text, id: bubbleId++, detail }]);
   };
 
   const beginManualRecording = async () => {
@@ -201,8 +201,8 @@ export function Orb() {
   }, []);
 
   useEffect(() => {
-    const unlisten = listen<string>("llm_debug", (event) => {
-      addBubble("debug", event.payload);
+    const unlisten = listen<DebugEvent>("llm_debug", (event) => {
+      addBubble("debug", event.payload.summary, event.payload.detail);
     });
     return () => { unlisten.then((fn) => fn()); };
   }, []);

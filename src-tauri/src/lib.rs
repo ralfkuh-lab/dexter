@@ -206,6 +206,7 @@ pub fn run() {
             commands::get_ctx_max,
             commands::get_last_stats,
             commands::get_panel_content,
+            commands::show_debug_panel,
             commands::resolve_dialog,
             commands::list_models,
             commands::set_config,
