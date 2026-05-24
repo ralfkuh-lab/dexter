@@ -1,0 +1,93 @@
+[
+  {
+    "id": "time",
+    "prompt": "Wie spät ist es?",
+    "expected_tool": "get_current_time",
+    "expected_args": null
+  },
+  {
+    "id": "date",
+    "prompt": "Welcher Tag ist heute?",
+    "expected_tool": "get_current_time",
+    "expected_args": null
+  },
+  {
+    "id": "clipboard",
+    "prompt": "Was steht in meiner Zwischenablage?",
+    "expected_tool": "read_clipboard",
+    "expected_args": null
+  },
+  {
+    "id": "screenshot",
+    "prompt": "Was siehst du auf meinem Bildschirm?",
+    "expected_tool": "take_screenshot",
+    "expected_args": null
+  },
+  {
+    "id": "switch_agy",
+    "prompt": "Öffne eine Coding Session mit agy",
+    "expected_tool": "switch_mode",
+    "expected_args": {"mode": "agy_session"}
+  },
+  {
+    "id": "switch_claude",
+    "prompt": "Starte eine Claude Coding Session",
+    "expected_tool": "switch_mode",
+    "expected_args": {"mode": "claude_session"}
+  },
+  {
+    "id": "switch_chat",
+    "prompt": "Geh zurück in den Chat Modus",
+    "expected_tool": "switch_mode",
+    "expected_args": {"mode": "chat"}
+  },
+  {
+    "id": "run_ls",
+    "prompt": "Zeig mir den Inhalt von /tmp",
+    "expected_tool": "run_command",
+    "expected_args": null
+  },
+  {
+    "id": "open_url",
+    "prompt": "Öffne google.com",
+    "expected_tool": "open_url",
+    "expected_args": null
+  },
+  {
+    "id": "apps",
+    "prompt": "Welche Apps sind gerade offen?",
+    "expected_tool": "list_running_apps",
+    "expected_args": null
+  },
+  {
+    "id": "web_fetch",
+    "prompt": "Was steht auf der Webseite heise.de?",
+    "expected_tool": "web_fetch",
+    "expected_args": null
+  },
+  {
+    "id": "general_knowledge",
+    "prompt": "Was ist die Hauptstadt von Frankreich?",
+    "expected_tool": null,
+    "expected_args": null
+  },
+  {
+    "id": "greeting",
+    "prompt": "Hallo Dexter!",
+    "expected_tool": null,
+    "expected_args": null
+  },
+  {
+    "id": "opinion",
+    "prompt": "Was hältst du von Rust als Programmiersprache?",
+    "expected_tool": null,
+    "expected_args": null
+  },
+  {
+    "id": "panel_after_command",
+    "prompt": "Zeig mir alle Python-Dateien in meinem Home-Verzeichnis im Panel",
+    "expected_tool": "run_command",
+    "expected_args": null,
+    "note": "Sollte zuerst run_command aufrufen, dann show_panel mit dem Ergebnis"
+  }
+]

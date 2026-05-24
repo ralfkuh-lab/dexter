@@ -55,6 +55,7 @@ startet Dexter die tmux-Session + ein gnome-terminal dazu. Spracheingaben gehen 
 src-tauri/src/
   lib.rs              Tauri-Setup, Tray, Hotkeys, AppState-Init, Command-Registry
   pipeline.rs         PTT-Handler, STT→LLM→TTS Orchestrierung (~580 Zeilen)
+  dictation.rs        Diktier-Modus: Multi-Segment-Spracheingabe mit Buffer
   agent_session.rs    tmux-basierte CLI-Agent-Sessions
   command_parser.rs   Deterministischer KOMMANDO-Parser (STT-tolerant)
   dialog_manager.rs   ask_user-Dialoge: Sprach-/Klick-Auflösung, Timeout
@@ -63,7 +64,7 @@ src-tauri/src/
   conversation.rs     Chat-Historie, Redaktion veralteter Tool-Ergebnisse
   automation.rs       Lokale Test-/Steuerungs-API (127.0.0.1:9877)
   state.rs            AppState, AppMode, Dialog/Panel/Processing State
-  config.rs           System-Prompt, ToolsConfig, VoiceConfig
+  config.rs           ToolsConfig, VoiceConfig (System-Prompt wird aus system-prompt.md geladen)
   voice.rs            HTTP-STT, LLM-Streaming (Ollama+OpenAI), TTS, Tool-Defs
   tools.rs            Tool-Implementierungen (cfg-getrennt pro OS)
   sandbox.rs          Shell-Sandbox für run_command
@@ -110,6 +111,18 @@ Lokale HTTP-API für E2E-Tests und Scripting. Endpunkte:
 - `POST /quit` — App beenden
 
 E2E-Smoke: `tests/e2e/smoke_automation.py`
+
+### System-Prompt
+
+Der System-Prompt liegt als **`system-prompt.md`** im Projekt-Root (nicht mehr
+hartcodiert in config.rs). Änderungen werden beim App-Neustart geladen.
+
+### Tool-Calling-Optimierung
+
+Kleine LLMs (4-8B) rufen Tools oft nicht zuverlässig auf. Strategie-Dokument
+in `docs/TOOL-CALLING-STRATEGY.md`. Test-Harness: `tests/tool_calling/eval.py`
+mit Szenarien in `tests/tool_calling/scenarios.json`. Referenz-Implementierung
+für Rescue Parsing und Retry Nudging: `/home/ralf/dev/forge`.
 
 ## Multi-Platform-Ambition, Linux-Realität
 
