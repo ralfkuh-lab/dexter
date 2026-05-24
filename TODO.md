@@ -45,6 +45,15 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 - [ ] **macOS-Pfade weiter pflegen, aber ungetestet.** Multi-Platform bleibt
   Ziel, aktive Entwicklung ist Linux. macOS-`cfg`-Branches bewusst behalten.
 
+## Knowledge-System: Markdown-Vault statt RAG-Embeddings
+
+- [ ] **Markdown-Vault als Wissensbasis.** Konfigurierbarer Ordner mit Markdown-
+  Dateien (Obsidian-kompatibel). Neues Tool `search_notes` sucht per grep/find
+  im Vault, liest relevante Dateien und gibt sie dem LLM als Kontext. Keine
+  Embeddings, kein Ollama-Dependency, kein SQLite-Vektorstore. Verlinkungen
+  (`[[topic]]`) geben dem LLM Struktur. Dateien sind auch außerhalb von Dexter
+  editierbar. Ersetzt perspektivisch das bestehende RAG-System.
+
 ## Features / Ideen (nicht dringend)
 
 - [ ] **Diagnose-Anzeige in Settings:** Config-Pfad und Endpunkt-Health live.
