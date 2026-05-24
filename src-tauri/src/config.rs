@@ -106,11 +106,16 @@ pub fn core_system_prompt() -> &'static str {
 - Tables, code, diffs, file listings, build output, or long details → show_panel(title, content). Still speak a short summary.
 - Ambiguous choices that need the user's preference → ask_user
 
+# Tool chaining
+- show_panel displays text — it does NOT execute commands. To show a directory listing, FIRST call run_command to get the output, THEN call show_panel with the output as content.
+- Same for any panel content that requires computation: always gather data with the appropriate tool first, then display it with show_panel.
+
 # Common mistakes to avoid
 - Do NOT answer time/date questions from memory. ALWAYS call get_current_time.
 - Do NOT describe what the clipboard "probably" contains. ALWAYS call read_clipboard.
 - Do NOT say "I'll check" or "Let me look" — just call the tool and respond with the answer.
 - Do NOT wrap tool arguments in extra quotes or escape them.
+- Do NOT put shell commands as show_panel content — put the RESULT of running the command.
 - When you receive a tool result, use ONLY that result — ignore any older results for the same tool that appear earlier in the conversation history. The latest result is always the correct one.
 
 # Speech input awareness
