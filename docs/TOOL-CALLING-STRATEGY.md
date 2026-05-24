@@ -1,67 +1,100 @@
-# Tool-Calling-Optimierung für kleine LLMs
+# Tool-Calling-Optimierung für Gemma 4 E4B
 
 ## Problem
 
-Gemma 4 E4B (und ähnliche 4-8B Modelle) rufen Tools oft nicht korrekt auf:
-- Schreiben `call switch_mode(mode: "agy_session")` als Text statt echten Tool-Call
-- Beschreiben was sie tun würden ("Ich zeige dir das im Panel") ohne es zu tun
-- Setzen Tool-Argumente falsch (Shell-Command statt Ergebnis in show_panel)
+Gemma 4 E4B ruft Tools oft nicht korrekt auf:
+- Schreibt `call switch_mode(mode: "agy_session")` als Text statt echten Tool-Call
+- Beschreibt was es tun würde ("Ich zeige dir das im Panel") ohne es zu tun
+- Setzt Tool-Argumente falsch (Shell-Command statt Ergebnis in show_panel)
+- Erkennt STT-Verhörer nicht (z.B. "AGI" statt "agy", "Cloud" statt "Claude")
+
+## Aktuelle Konfiguration
+
+- **Modell:** Gemma 4 E4B IQ4_XS auf llama.cpp (Port 8081)
+- **System-Prompt:** `system-prompt.md` im Projekt-Root (wird beim App-Start geladen)
+- **Tool-Format:** OpenAI Function Calling via `/v1/chat/completions`
+- **Modellwechsel ist aufwändig** (Server-Stack neu laden) — erstmal nur Gemma 4 E4B optimieren
 
 ## Strategie
 
-Drei Hebel, in dieser Reihenfolge angehen:
+### Schritt 1: System-Prompt iterativ verbessern
 
-### 1. System-Prompt iterativ verbessern
+**Workflow:**
+1. Baseline messen: `python3 tests/tool_calling/eval.py --verbose`
+2. `system-prompt.md` editieren
+3. Eval erneut laufen lassen (kein App-Neustart nötig — eval sendet direkt an API)
+4. Wiederholen bis Score stabil ≥80%
 
-Die Datei `system-prompt.md` im Projekt-Root enthält den System-Prompt.
-Änderungen werden beim App-Neustart automatisch geladen.
-
-**Test-Methodik:**
 ```bash
-# Test-Harness starten (sendet Szenarien direkt an llama.cpp API)
-python3 tests/tool_calling/eval.py
+# Vollständiger Eval-Lauf
+python3 tests/tool_calling/eval.py --verbose
+
+# Einzelnes Szenario testen
+python3 tests/tool_calling/eval.py -s stt_agy_agi --verbose
 
 # Mit alternativem Prompt testen
 python3 tests/tool_calling/eval.py --system-prompt-file prompts/v2.md
-
-# Mit anderem Modell testen (z.B. qwen3.5-4b)
-python3 tests/tool_calling/eval.py --model qwen3.5-4b
 ```
 
-**Szenarien** in `tests/tool_calling/scenarios.json` — jedes definiert:
-- `prompt`: User-Eingabe
-- `expected_tool`: erwarteter Tool-Name (oder `null` für reine Textantwort)
-- `expected_args`: optionale Argument-Validierung
-
-**Bewertung:**
-- `PASS`: Tool-Call mit korrektem Namen + korrekten Args
-- `WRONG_TOOL`: Tool-Call, aber falsches Tool
-- `TEXT_INSTEAD`: Kein Tool-Call, obwohl einer erwartet
-- `UNWANTED_TOOL`: Tool-Call, obwohl keiner erwartet
-- Score = PASS / Gesamtzahl
-
-### 2. Rescue Parsing (Backend)
+### Schritt 2: Rescue Parsing (Backend)
 
 Wenn das LLM Text statt Tool-Call liefert, automatisch versuchen den
 Tool-Call aus dem Text zu extrahieren. Zu implementieren in
 `src-tauri/src/voice/llm/mod.rs`:
 
 Patterns zum Erkennen:
-- `call tool_name(key: "value", ...)` → häufigstes Fehlformat
+- `call tool_name(key: "value", ...)` → häufigstes Fehlformat bei Gemma
 - `{"tool": "name", "args": {...}}` → JSON-Format
 - `tool_name({"key": "value"})` → Funktions-Syntax
 - XML `<tool_call>` → bereits implementiert
 
-### 3. Retry Nudging (Backend)
+### Schritt 3: Retry Nudging (Backend)
 
 Wenn Rescue auch fehlschlägt: eine Retry-Nachricht einfügen und nochmal
 ans LLM senden. Max 1 Retry pro Turn.
 
-Nudge-Text:
-```
-"Your previous response was plain text, but this task requires a tool call. 
-Please respond with an actual tool call, not a description of what you would do."
-```
+## Szenarien-Kategorien
+
+Die Testszenarien (`tests/tool_calling/scenarios.json`) decken ab:
+
+### Basis-Tool-Calls (muss funktionieren)
+- Zeitfragen → `get_current_time`
+- Clipboard → `read_clipboard`
+- Screenshot → `take_screenshot`
+- Shell-Befehle → `run_command`
+- URLs → `open_url`, `web_fetch`
+- Apps → `list_running_apps`
+- Modus-Wechsel → `switch_mode`
+
+### STT-Fehlertoleranz (kritisch!)
+- **Agent-Namen verhört:** "AGI"→agy, "Cloud"→Claude, "Codecks"→Codex, "Antigravity"→agy
+- **Pfade gesprochen:** "home dev dexter" → ~/dev/dexter
+- **URLs gesprochen:** "Heise Punkt DE" → heise.de
+- **Füllwörter:** "Ähm ja also wie spät ist es jetzt?"
+- **Gebrochene Sätze:** "Die, also die Zwischenablage, was steht da drin?"
+- **Umgangssprachlich:** "Was hab ich denn da kopiert", "Guck mal was auf dem Screen ist"
+
+### Ambiguität (sollte nachfragen via ask_user)
+- **Fehlender Agent:** "Mach mal ne Coding Session auf" (welcher Agent?)
+- **Zu vage:** "Kannst du das mal machen?" (was genau?)
+
+### Negative Szenarien (soll KEIN Tool aufrufen)
+- Allgemeinwissen: "Was ist die Hauptstadt von Frankreich?"
+- Begrüßung: "Hallo Dexter!"
+- Meinungsfragen: "Was hältst du von Rust?"
+
+## Bewertung
+
+| Status | Bedeutung |
+|--------|-----------|
+| `PASS` | Tool-Call mit korrektem Namen + korrekten Args |
+| `WRONG_TOOL` | Tool-Call, aber falsches Tool |
+| `WRONG_ARGS` | Richtiges Tool, aber falsche Argumente |
+| `TEXT_INSTEAD` | Kein Tool-Call, obwohl einer erwartet |
+| `UNWANTED_TOOL` | Tool-Call, obwohl keiner erwartet |
+| `ERROR` | API-Fehler |
+
+**Ziel:** ≥80% PASS-Rate (aktuell vermutlich 30-50%)
 
 ## Referenz: Forge Framework
 
@@ -89,24 +122,20 @@ letzter Hebel eingesetzt werden, wenn Prompt + Rescue + Retry nicht reichen.
 User-Text
   → pipeline.rs: run_llm_pipeline()
   → voice/llm/mod.rs: chat_streaming()
-    → openai.rs oder ollama.rs (je nach llm_provider)
-    → Request an LLM mit tools[] im OpenAI-Format
+    → openai.rs (llm_provider="openai" für llama.cpp)
+    → POST /v1/chat/completions mit tools[] im OpenAI-Format
     → Response: StreamResult::Content oder StreamResult::ToolCalls
   → pipeline.rs: Tool-Call-Schleife (max 5 Runden)
     → tool_executor.rs: execute_tool()
     → Ergebnis zurück ans LLM
 ```
 
-Tool-Definitionen: `src-tauri/src/voice/tool_defs.rs`
-System-Prompt: `system-prompt.md` (geladen von `config.rs::core_system_prompt()`)
-LLM-Provider: `llm_provider` in Config (`"openai"` = llama.cpp, `"ollama"` = Ollama)
-
-## Modell-Alternativen zum Testen
-
-| Modell | Pfad in LM Studio | Erwartung |
-|--------|-------------------|-----------|
-| Gemma 4 E4B IQ4_XS | aktuell geladen | Baseline |
-| Qwen 3.5 4B Q4_K_M | `lmstudio-community/qwen3.5-4b` | Qwen hat generell besseres Tool-Calling |
-| Qwen 3.5 2B | `lmstudio-community/qwen3.5-2b` | Schneller, aber weniger fähig |
-
-Modell wechseln: In Dexter Settings oder direkt im llama.cpp Docker-Container.
+| Datei | Rolle |
+|-------|-------|
+| `system-prompt.md` | System-Prompt (editierbar, geladen von config.rs) |
+| `src-tauri/src/voice/tool_defs.rs` | Tool-Definitionen im OpenAI-Format |
+| `src-tauri/src/voice/llm/openai.rs` | API-Client für llama.cpp |
+| `src-tauri/src/voice/llm/mod.rs` | Dispatch + XML-Parsing |
+| `src-tauri/src/pipeline.rs` | Tool-Call-Schleife + TTS-Streaming |
+| `src-tauri/src/tool_executor.rs` | Tool-Ausführung |
+| `src-tauri/src/config.rs` | Config + Prompt-Loading |
