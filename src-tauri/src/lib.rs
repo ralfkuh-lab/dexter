@@ -52,6 +52,7 @@ pub fn run() {
             last_stats: Mutex::new(None),
         })
         .setup(|app| {
+            let show_item = MenuItemBuilder::with_id("show", "Fenster anzeigen").build(app)?;
             let settings_item = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
             let text_input_item =
                 MenuItemBuilder::with_id("text_input", "Text-Eingabe …").build(app)?;
@@ -60,8 +61,8 @@ pub fn run() {
             let clear_item = MenuItemBuilder::with_id("clear", "Clear Chat").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
-            #[allow(unused_variables)]
             let menu = MenuBuilder::new(app)
+                .item(&show_item)
                 .item(&text_input_item)
                 .item(&tts_toggle_item)
                 .item(&settings_item)
@@ -91,6 +92,9 @@ pub fn run() {
                     }
                 })
                 .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        window::reveal_main_window(app);
+                    }
                     "settings" => {
                         if let Some(window) = app.get_webview_window("settings") {
                             let _ = window.show();
@@ -131,14 +135,7 @@ pub fn run() {
                     _ => {}
                 });
 
-            // Linux AppIndicator zeigt bei jedem Klick das Menü — kein separater
-            // Links-/Rechtsklick möglich. Menü daher nur auf macOS setzen.
-            #[cfg(target_os = "macos")]
-            {
-                tray_builder = tray_builder.menu(&menu);
-            }
-
-            let _tray = tray_builder.build(app)?;
+            let _tray = tray_builder.menu(&menu).build(app)?;
 
             // Register global PTT shortcut from config so it works when window is hidden.
             let initial_hotkey = app
