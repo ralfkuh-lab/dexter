@@ -3,6 +3,15 @@
 Aktive Punkte. Erledigtes raus, nicht abhaken-und-stehenlassen.
 Roadmap und Gesamtvision → `docs/VISION.md`.
 
+## Tray-Icon mit Orb-Status (Custom Implementation)
+
+- [ ] **Eigenes Tray-Icon mit libappindicator oder ksni.** Tauri's `tray-icon`
+  Crate verdrahtet den `activate`-Signal nicht — Linksklick öffnet immer das
+  Menü statt das Fenster. Eigene Implementation mit `connect_activate` für
+  Linksklick (Fenster toggle) und Menü nur bei Rechtsklick. Dynamisches Icon
+  das den Orb-State widerspiegelt (idle/listening/thinking/speaking). Ziel:
+  Dexter läuft im Hintergrund, Orb-Icon zeigt Status, Fenster optional.
+
 ## Agent-Sessions (tmux-basiert)
 
 - [ ] **Session-Cleanup beim App-Exit.** Offene tmux-Sessions beim Beenden
