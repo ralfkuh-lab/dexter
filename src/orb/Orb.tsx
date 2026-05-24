@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { AudioChunk, ChatBubble, DebugEvent, DialogPayload, LlmStats, ProcessingState, VoiceConfig } from "../types";
 import { StatsBar } from "./StatsBar";
 import { ModeBar } from "./ModeBar";
+import { DictationBuffer } from "./DictationBuffer";
 import { Bubble } from "./Bubble";
 
 let bubbleId = 0;
@@ -22,6 +23,8 @@ export function Orb() {
   const [textInput, setTextInput] = useState<string>("");
   const [dialog, setDialog] = useState<DialogPayload | null>(null);
   const [appMode, setAppMode] = useState<string>("chat");
+  const [dictationActive, setDictationActive] = useState<boolean>(false);
+  const [dictationBuffer, setDictationBuffer] = useState<string>("");
   const bubblesEndRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -48,6 +51,9 @@ export function Orb() {
       invoke<string>("get_app_mode")
         .then((m) => setAppMode(m))
         .catch(() => {});
+      invoke<[boolean, string]>("get_dictation_state")
+        .then(([active, buf]) => { setDictationActive(active); setDictationBuffer(buf); })
+        .catch(() => {});
       invoke<number | null>("get_ctx_max")
         .then((n) => setCtxMax(n))
         .catch(() => {});
@@ -59,10 +65,17 @@ export function Orb() {
     const unCfg = listen("config_changed", load);
     const unStats = listen<LlmStats>("llm_stats", (e) => setStats(e.payload));
     const unMode = listen<string>("app_mode_changed", (e) => setAppMode(e.payload));
+    const unDictMode = listen<boolean>("dictation_mode_changed", (e) => {
+      setDictationActive(e.payload);
+      if (!e.payload) setDictationBuffer("");
+    });
+    const unDictBuf = listen<string>("dictation_buffer_updated", (e) => setDictationBuffer(e.payload));
     return () => {
       unCfg.then((fn) => fn());
       unStats.then((fn) => fn());
       unMode.then((fn) => fn());
+      unDictMode.then((fn) => fn());
+      unDictBuf.then((fn) => fn());
     };
   }, []);
 
@@ -369,7 +382,14 @@ export function Orb() {
         </div>
       )}
 
-      {textInputVisible && (
+      {dictationActive && (
+        <DictationBuffer
+          buffer={dictationBuffer}
+          onBufferChange={setDictationBuffer}
+        />
+      )}
+
+      {textInputVisible && !dictationActive && (
         <div className="shrink-0 px-2 pt-1 pb-1">
           <textarea
             ref={textInputRef}

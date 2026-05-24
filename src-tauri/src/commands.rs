@@ -15,6 +15,33 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tokio_util::sync::CancellationToken;
 
 #[tauri::command]
+pub fn toggle_dictation(app: tauri::AppHandle) {
+    if crate::dictation::is_active(&app) {
+        crate::dictation::deactivate(&app);
+    } else {
+        crate::dictation::activate(&app);
+    }
+}
+
+#[tauri::command]
+pub fn get_dictation_state(app: tauri::AppHandle) -> (bool, String) {
+    (
+        crate::dictation::is_active(&app),
+        crate::dictation::get_buffer(&app),
+    )
+}
+
+#[tauri::command]
+pub fn update_dictation_buffer(app: tauri::AppHandle, text: String) {
+    crate::dictation::set_buffer(&app, &text);
+}
+
+#[tauri::command]
+pub async fn send_dictation(app: tauri::AppHandle) -> Result<(), String> {
+    crate::dictation::send_buffer(&app).await
+}
+
+#[tauri::command]
 pub fn get_app_mode(state: tauri::State<AppState>) -> String {
     state.app_mode.lock().unwrap().to_string()
 }

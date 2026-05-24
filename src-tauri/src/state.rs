@@ -114,6 +114,8 @@ impl std::fmt::Display for AppMode {
 
 pub struct AppState {
     pub app_mode: Mutex<AppMode>,
+    pub dictation_active: Mutex<bool>,
+    pub dictation_buffer: Mutex<String>,
     pub messages: Mutex<Vec<ChatMessage>>,
     pub config: Mutex<VoiceConfig>,
     pub ui_state: Mutex<UiState>,

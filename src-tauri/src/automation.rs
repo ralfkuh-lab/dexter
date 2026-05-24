@@ -109,6 +109,8 @@ struct WaitResponse {
 struct AutomationStateResponse {
     ok: bool,
     app_mode: String,
+    dictation_active: bool,
+    dictation_buffer: String,
     processing_stage: String,
     processing_text: String,
     is_recording: bool,
@@ -343,10 +345,14 @@ fn snapshot_state(app: &AppHandle) -> AutomationStateResponse {
     drop(config);
     let is_recording = *state.is_recording.lock().unwrap();
     let app_mode = state.app_mode.lock().unwrap().to_string();
+    let dictation_active = *state.dictation_active.lock().unwrap();
+    let dictation_buffer = state.dictation_buffer.lock().unwrap().clone();
 
     AutomationStateResponse {
         ok: true,
         app_mode,
+        dictation_active,
+        dictation_buffer,
         processing_stage: processing.stage,
         processing_text: processing.text,
         is_recording,

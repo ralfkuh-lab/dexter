@@ -6,6 +6,7 @@ use crate::state::AppMode;
 pub enum Command {
     SetMode(AppMode),
     Status,
+    ToggleDictation,
 }
 
 const KOMMANDO_PREFIXES: &[&str] = &[
@@ -33,6 +34,9 @@ pub fn parse(transcript: &str) -> Option<Command> {
     match rest {
         "chat" => Some(Command::SetMode(AppMode::Chat)),
         "status" => Some(Command::Status),
+        "diktat" | "diktieren" | "dictation" | "diktier" | "dictat" => {
+            Some(Command::ToggleDictation)
+        }
         _ if matches_coding_session(rest, "codex") => {
             Some(Command::SetMode(AppMode::CodexSession))
         }

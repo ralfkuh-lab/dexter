@@ -155,6 +155,23 @@ pub async fn process_pipeline(
         return Ok(());
     }
 
+    if crate::dictation::is_active(&app) {
+        let should_send = crate::dictation::append_segment(&app, &transcript);
+        if should_send {
+            crate::dictation::send_buffer(&app).await?;
+        } else {
+            emit_processing(
+                &app,
+                ProcessingState {
+                    stage: "idle".to_string(),
+                    text: String::new(),
+                },
+            )
+            .map_err(|e: tauri::Error| e.to_string())?;
+        }
+        return Ok(());
+    }
+
     run_llm_pipeline(app, transcript, config, cancel).await
 }
 
@@ -665,6 +682,15 @@ fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
             let mode = state.app_mode.lock().unwrap().to_string();
             record_automation_event(app, "command.status", &mode);
             let _ = app.emit("app_mode_changed", &mode);
+        }
+        Command::ToggleDictation => {
+            if crate::dictation::is_active(app) {
+                crate::dictation::deactivate(app);
+                record_automation_event(app, "dictation", "deactivated");
+            } else {
+                crate::dictation::activate(app);
+                record_automation_event(app, "dictation", "activated");
+            }
         }
     }
 }

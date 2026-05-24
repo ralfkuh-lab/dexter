@@ -12,6 +12,7 @@ mod automation;
 mod backend;
 mod command_parser;
 mod commands;
+mod dictation;
 mod conversation;
 mod config;
 mod dialog_manager;
@@ -35,6 +36,8 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
             app_mode: Mutex::new(state::AppMode::default()),
+            dictation_active: Mutex::new(false),
+            dictation_buffer: Mutex::new(String::new()),
             messages: Mutex::new(Vec::new()),
             config: Mutex::new(VoiceConfig::load()),
             ui_state: Mutex::new(state::UiState::default()),
@@ -210,6 +213,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::toggle_dictation,
+            commands::get_dictation_state,
+            commands::update_dictation_buffer,
+            commands::send_dictation,
             commands::get_app_mode,
             commands::get_config,
             commands::get_core_system_prompt,
