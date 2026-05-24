@@ -83,17 +83,9 @@
   border-color: rgba(127, 29, 29, 0.2);
 }
 
-/* Main orb window background — full tint, only the border pixels fade to transparent */
+/* Main orb window background */
 .orb-bg {
-  background: rgba(0, 0, 0, 0.45);
-  -webkit-mask-image:
-    linear-gradient(to right,  transparent 0%, black 18%, black 82%, transparent 100%),
-    linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
-  -webkit-mask-composite: destination-in;
-  mask-image:
-    linear-gradient(to right,  transparent 0%, black 18%, black 82%, transparent 100%),
-    linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
-  mask-composite: intersect;
+  background: #0a0a18;
 }
 
 /* Settings background */

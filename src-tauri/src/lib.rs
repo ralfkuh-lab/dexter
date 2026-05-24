@@ -52,7 +52,6 @@ pub fn run() {
             last_stats: Mutex::new(None),
         })
         .setup(|app| {
-            let show_item = MenuItemBuilder::with_id("show", "Show/Hide Window").build(app)?;
             let settings_item = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
             let text_input_item =
                 MenuItemBuilder::with_id("text_input", "Text-Eingabe …").build(app)?;
@@ -62,7 +61,6 @@ pub fn run() {
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
             let menu = MenuBuilder::new(app)
-                .item(&show_item)
                 .item(&text_input_item)
                 .item(&tts_toggle_item)
                 .item(&settings_item)
@@ -78,8 +76,13 @@ pub fn run() {
                     "Voice Assistant — Hold {} to talk",
                     app.state::<AppState>().config.lock().unwrap().hotkey
                 ))
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => {
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
                                 let _ = window.hide();
@@ -90,6 +93,8 @@ pub fn run() {
                             window::reveal_main_window(app);
                         }
                     }
+                })
+                .on_menu_event(|app, event| match event.id().as_ref() {
                     "settings" => {
                         if let Some(window) = app.get_webview_window("settings") {
                             let _ = window.show();
@@ -153,9 +158,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            // Make webview background transparent and hide on launch.
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
                 let initial_decorations = app
                     .state::<AppState>()
                     .config
