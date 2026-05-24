@@ -70,6 +70,26 @@
   border-color: rgba(6, 182, 212, 0.3);
 }
 
+/* Dictation — green */
+.orb-dictation .orb-core {
+  background: radial-gradient(circle at 35% 30%, #bbf7d0, #22c55e, #047857);
+}
+.orb-dictation .orb-glow {
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.36), transparent 70%);
+}
+.orb-dictation .orb-ring {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+.orb-dictation-speaking .orb-core {
+  background: radial-gradient(circle at 35% 30%, #dcfce7, #34d399, #059669);
+}
+.orb-dictation-speaking .orb-glow {
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.5), transparent 70%);
+}
+.orb-dictation-speaking .orb-ring {
+  border-color: rgba(52, 211, 153, 0.45);
+}
+
 /* Error — dim red */
 .orb-error .orb-core {
   background: radial-gradient(circle at 35% 30%, #7f1d1d, #991b1b, #450a0a);

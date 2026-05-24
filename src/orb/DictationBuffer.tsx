@@ -11,9 +11,11 @@ const COMMANDS = [
 
 export function DictationBuffer({
   buffer,
+  listening,
   onBufferChange,
 }: {
   buffer: string;
+  listening: boolean;
   onBufferChange: (text: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -42,7 +44,9 @@ export function DictationBuffer({
     <div className="shrink-0 mx-2 mb-2 rounded-lg border border-emerald-500/20 bg-emerald-950/30 animate-fade-in">
       <div className="px-3 pt-2 pb-1">
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[11px] font-medium text-emerald-300/70">Diktier-Modus</span>
+          <span className="text-[11px] font-medium text-emerald-300/70">
+            {listening ? "Nimmt auf..." : "Höre zu..."}
+          </span>
           <div className="flex gap-1.5">
             <button
               type="button"
@@ -77,7 +81,7 @@ export function DictationBuffer({
             }
           }}
           rows={1}
-          placeholder="Sprich einen Satz … (F9 gedrückt halten)"
+          placeholder="Sprich einen Satz ..."
           className="block w-full px-3 py-2 text-sm rounded-md bg-black/30 text-white/90 placeholder-white/25 border border-emerald-500/10 focus:outline-none focus:border-emerald-500/30 resize-none overflow-y-auto leading-5"
         />
       </div>

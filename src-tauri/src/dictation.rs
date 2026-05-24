@@ -30,9 +30,7 @@ pub fn parse_dictation_command(text: &str) -> Option<DictationCommand> {
         return Some(DictationCommand::NewLine);
     }
 
-    let delete_prefixes = [
-        "lösche", "lösch", "loesche", "loesch", "lösch", "delete",
-    ];
+    let delete_prefixes = ["lösche", "lösch", "loesche", "loesch", "lösch", "delete"];
 
     for prefix in &delete_prefixes {
         if let Some(rest) = t.strip_prefix(prefix) {
@@ -45,12 +43,7 @@ pub fn parse_dictation_command(text: &str) -> Option<DictationCommand> {
             }
             if matches!(
                 rest,
-                "wort"
-                    | "word"
-                    | "das wort"
-                    | "letztes wort"
-                    | "das letzte wort"
-                    | "ein wort"
+                "wort" | "word" | "das wort" | "letztes wort" | "das letzte wort" | "ein wort"
             ) {
                 return Some(DictationCommand::DeleteWord);
             }
@@ -61,18 +54,44 @@ pub fn parse_dictation_command(text: &str) -> Option<DictationCommand> {
 }
 
 pub fn activate(app: &tauri::AppHandle) {
-    let state = app.state::<AppState>();
-    *state.dictation_active.lock().unwrap() = true;
-    state.dictation_buffer.lock().unwrap().clear();
+    {
+        let state = app.state::<AppState>();
+        *state.is_recording.lock().unwrap() = false;
+        *state.dictation_active.lock().unwrap() = true;
+        state.dictation_buffer.lock().unwrap().clear();
+    }
     let _ = app.emit("dictation_mode_changed", true);
     let _ = app.emit("dictation_buffer_updated", "");
+    let _ = emit_processing(
+        app,
+        ProcessingState {
+            stage: "listening".to_string(),
+            text: "Höre zu...".to_string(),
+        },
+    );
+    crate::pipeline::start_dictation_loop(app);
 }
 
 pub fn deactivate(app: &tauri::AppHandle) {
-    let state = app.state::<AppState>();
-    *state.dictation_active.lock().unwrap() = false;
-    state.dictation_buffer.lock().unwrap().clear();
+    crate::pipeline::stop_dictation_loop(app);
+    {
+        let state = app.state::<AppState>();
+        *state.dictation_active.lock().unwrap() = false;
+        state.dictation_buffer.lock().unwrap().clear();
+    }
     let _ = app.emit("dictation_mode_changed", false);
+    let _ = app.emit("dictation_buffer_updated", "");
+    let _ = app.emit(
+        "dictation_vad",
+        serde_json::json!({ "rms": 0.0, "threshold": 0.0, "speech": false }),
+    );
+    let _ = emit_processing(
+        app,
+        ProcessingState {
+            stage: "idle".to_string(),
+            text: String::new(),
+        },
+    );
 }
 
 pub fn is_active(app: &tauri::AppHandle) -> bool {
@@ -216,34 +235,70 @@ mod tests {
 
     #[test]
     fn parse_send_commands() {
-        assert_eq!(parse_dictation_command("absenden"), Some(DictationCommand::Send));
-        assert_eq!(parse_dictation_command("Over"), Some(DictationCommand::Send));
-        assert_eq!(parse_dictation_command("FERTIG"), Some(DictationCommand::Send));
+        assert_eq!(
+            parse_dictation_command("absenden"),
+            Some(DictationCommand::Send)
+        );
+        assert_eq!(
+            parse_dictation_command("Over"),
+            Some(DictationCommand::Send)
+        );
+        assert_eq!(
+            parse_dictation_command("FERTIG"),
+            Some(DictationCommand::Send)
+        );
     }
 
     #[test]
     fn parse_delete_word() {
-        assert_eq!(parse_dictation_command("lösche Wort"), Some(DictationCommand::DeleteWord));
-        assert_eq!(parse_dictation_command("lösch das Wort"), Some(DictationCommand::DeleteWord));
-        assert_eq!(parse_dictation_command("loesche Wort"), Some(DictationCommand::DeleteWord));
+        assert_eq!(
+            parse_dictation_command("lösche Wort"),
+            Some(DictationCommand::DeleteWord)
+        );
+        assert_eq!(
+            parse_dictation_command("lösch das Wort"),
+            Some(DictationCommand::DeleteWord)
+        );
+        assert_eq!(
+            parse_dictation_command("loesche Wort"),
+            Some(DictationCommand::DeleteWord)
+        );
     }
 
     #[test]
     fn parse_delete_sentence() {
-        assert_eq!(parse_dictation_command("lösche Satz"), Some(DictationCommand::DeleteSentence));
-        assert_eq!(parse_dictation_command("lösch den Satz"), Some(DictationCommand::DeleteSentence));
+        assert_eq!(
+            parse_dictation_command("lösche Satz"),
+            Some(DictationCommand::DeleteSentence)
+        );
+        assert_eq!(
+            parse_dictation_command("lösch den Satz"),
+            Some(DictationCommand::DeleteSentence)
+        );
     }
 
     #[test]
     fn parse_delete_all() {
-        assert_eq!(parse_dictation_command("lösche alles"), Some(DictationCommand::DeleteAll));
-        assert_eq!(parse_dictation_command("lösch alles"), Some(DictationCommand::DeleteAll));
+        assert_eq!(
+            parse_dictation_command("lösche alles"),
+            Some(DictationCommand::DeleteAll)
+        );
+        assert_eq!(
+            parse_dictation_command("lösch alles"),
+            Some(DictationCommand::DeleteAll)
+        );
     }
 
     #[test]
     fn parse_new_line() {
-        assert_eq!(parse_dictation_command("neue Zeile"), Some(DictationCommand::NewLine));
-        assert_eq!(parse_dictation_command("neuer Absatz"), Some(DictationCommand::NewLine));
+        assert_eq!(
+            parse_dictation_command("neue Zeile"),
+            Some(DictationCommand::NewLine)
+        );
+        assert_eq!(
+            parse_dictation_command("neuer Absatz"),
+            Some(DictationCommand::NewLine)
+        );
     }
 
     #[test]

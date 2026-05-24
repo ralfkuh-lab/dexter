@@ -36,11 +36,17 @@ pub fn take_screenshot(monitor: Option<u32>) -> Result<String, String> {
     // Resize to max 1280px on longest side and convert to JPEG for smaller payload
     let status = Command::new("sips")
         .args([
-            "-Z", "1280",
-            "-s", "format", "jpeg",
-            "-s", "formatOptions", "70",
+            "-Z",
+            "1280",
+            "-s",
+            "format",
+            "jpeg",
+            "-s",
+            "formatOptions",
+            "70",
             &raw_str,
-            "--out", &resized_str,
+            "--out",
+            &resized_str,
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -75,7 +81,9 @@ pub fn take_screenshot(_monitor: Option<u32>) -> Result<String, String> {
 
     let wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
         || std::env::var("XDG_SESSION_TYPE").ok().as_deref() == Some("wayland");
-    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase();
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .to_lowercase();
 
     let mut attempts: Vec<(&str, Vec<String>)> = Vec::new();
     if wayland {
@@ -110,7 +118,10 @@ pub fn take_screenshot(_monitor: Option<u32>) -> Result<String, String> {
             .status();
         match result {
             Ok(status) if status.success() => {
-                if std::fs::metadata(&tmp_raw).map(|m| m.len() > 0).unwrap_or(false) {
+                if std::fs::metadata(&tmp_raw)
+                    .map(|m| m.len() > 0)
+                    .unwrap_or(false)
+                {
                     captured = true;
                     break;
                 }
@@ -146,8 +157,7 @@ pub fn take_screenshot(_monitor: Option<u32>) -> Result<String, String> {
     // bei Q70 zerstören sonst den OCR-Pfad des Vision-Modells.
     let rgb = resized.to_rgb8();
     let mut jpeg_bytes = Vec::new();
-    let encoder =
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 95);
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 95);
     rgb.write_with_encoder(encoder)
         .map_err(|e| format!("JPEG encode failed: {}", e))?;
 
@@ -336,9 +346,15 @@ pub fn read_clipboard() -> Result<String, String> {
 pub fn read_clipboard() -> Result<String, String> {
     let wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
     let candidates: Vec<(&str, Vec<&str>)> = if wayland {
-        vec![("wl-paste", vec!["--no-newline"]), ("xclip", vec!["-selection", "clipboard", "-o"])]
+        vec![
+            ("wl-paste", vec!["--no-newline"]),
+            ("xclip", vec!["-selection", "clipboard", "-o"]),
+        ]
     } else {
-        vec![("xclip", vec!["-selection", "clipboard", "-o"]), ("wl-paste", vec!["--no-newline"])]
+        vec![
+            ("xclip", vec!["-selection", "clipboard", "-o"]),
+            ("wl-paste", vec!["--no-newline"]),
+        ]
     };
 
     for (cmd, args) in candidates {
@@ -493,7 +509,22 @@ fn strip_html(html: &str) -> String {
     }
 
     // Replace block elements with newlines
-    let block_tags = ["</p>", "</div>", "</li>", "</h1>", "</h2>", "</h3>", "</h4>", "</h5>", "</h6>", "<br>", "<br/>", "<br />", "</tr>", "</blockquote>"];
+    let block_tags = [
+        "</p>",
+        "</div>",
+        "</li>",
+        "</h1>",
+        "</h2>",
+        "</h3>",
+        "</h4>",
+        "</h5>",
+        "</h6>",
+        "<br>",
+        "<br/>",
+        "<br />",
+        "</tr>",
+        "</blockquote>",
+    ];
     for tag in block_tags {
         s = s.replace(tag, "\n");
     }
@@ -592,7 +623,11 @@ pub fn list_running_apps() -> Result<String, String> {
 #[cfg(target_os = "windows")]
 pub fn list_running_apps() -> Result<String, String> {
     let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", "Get-Process | Select-Object -ExpandProperty ProcessName | Sort-Object -Unique"])
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-Process | Select-Object -ExpandProperty ProcessName | Sort-Object -Unique",
+        ])
         .output()
         .map_err(|e| format!("Failed to list processes: {}", e))?;
 

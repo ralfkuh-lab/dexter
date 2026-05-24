@@ -151,7 +151,11 @@ pub fn get_panel_content(state: tauri::State<AppState>) -> Option<PanelInfo> {
 }
 
 #[tauri::command]
-pub async fn show_debug_panel(app: tauri::AppHandle, title: String, content: String) -> Result<(), String> {
+pub async fn show_debug_panel(
+    app: tauri::AppHandle,
+    title: String,
+    content: String,
+) -> Result<(), String> {
     crate::panel_manager::show_panel(&app, title, content).await
 }
 
@@ -264,6 +268,10 @@ pub fn delete_knowledge_source(app: tauri::AppHandle, source: String) -> Result<
 
 #[tauri::command]
 pub fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
+    if crate::dictation::is_active(&app) {
+        return Ok(());
+    }
+
     let state = app.state::<AppState>();
 
     {
@@ -368,6 +376,10 @@ pub fn submit_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
+    if crate::dictation::is_active(&app) {
+        return Ok(());
+    }
+
     let state = app.state::<AppState>();
 
     *state.is_recording.lock().unwrap() = false;
@@ -423,4 +435,9 @@ pub fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_speaking(state: tauri::State<AppState>, speaking: bool) {
+    *state.is_speaking.lock().unwrap() = speaking;
 }

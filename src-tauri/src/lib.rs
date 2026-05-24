@@ -12,10 +12,10 @@ mod automation;
 mod backend;
 mod command_parser;
 mod commands;
-mod dictation;
-mod conversation;
 mod config;
+mod conversation;
 mod dialog_manager;
+mod dictation;
 mod panel_manager;
 mod pipeline;
 mod rag;
@@ -50,6 +50,8 @@ pub fn run() {
             recorded_samples: Mutex::new(Vec::new()),
             recording_sample_rate: Mutex::new(44100),
             is_recording: Mutex::new(false),
+            is_speaking: Mutex::new(false),
+            dictation_cancel: Mutex::new(None),
             pipeline_cancel: Mutex::new(CancellationToken::new()),
             ctx_max: Mutex::new(None),
             last_stats: Mutex::new(None),
@@ -245,6 +247,7 @@ pub fn run() {
             commands::delete_knowledge_source,
             commands::start_recording,
             commands::stop_recording_and_process,
+            commands::set_speaking,
             commands::set_tts_enabled,
             commands::submit_text,
             commands::get_system_info,

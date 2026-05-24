@@ -144,10 +144,7 @@ pub async fn warmup_llm(app: &tauri::AppHandle, config: &VoiceConfig) {
         .or_else(|| body.get("prompt_eval_count").and_then(|v| v.as_u64()))
         .map(|n| n as u32);
 
-    let model = body
-        .get("model")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let model = body.get("model").and_then(|v| v.as_str()).map(String::from);
 
     let stats = super::LlmStats {
         prompt_tokens,

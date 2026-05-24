@@ -37,13 +37,13 @@ pub fn parse(transcript: &str) -> Option<Command> {
         "diktat" | "diktieren" | "dictation" | "diktier" | "dictat" => {
             Some(Command::ToggleDictation)
         }
-        _ if matches_coding_session(rest, "codex") => {
-            Some(Command::SetMode(AppMode::CodexSession))
-        }
+        _ if matches_coding_session(rest, "codex") => Some(Command::SetMode(AppMode::CodexSession)),
         _ if matches_coding_session(rest, "claude") => {
             Some(Command::SetMode(AppMode::ClaudeSession))
         }
-        _ if matches_coding_session(rest, "opencode") || matches_coding_session(rest, "open code") => {
+        _ if matches_coding_session(rest, "opencode")
+            || matches_coding_session(rest, "open code") =>
+        {
             Some(Command::SetMode(AppMode::OpencodeSession))
         }
         _ if matches_coding_session(rest, "agy")
@@ -74,7 +74,10 @@ mod tests {
 
     #[test]
     fn parse_chat() {
-        assert_eq!(parse("Kommando Chat"), Some(Command::SetMode(AppMode::Chat)));
+        assert_eq!(
+            parse("Kommando Chat"),
+            Some(Command::SetMode(AppMode::Chat))
+        );
     }
 
     #[test]
@@ -124,18 +127,12 @@ mod tests {
 
     #[test]
     fn parse_stt_typo_komando() {
-        assert_eq!(
-            parse("Komando Chat"),
-            Some(Command::SetMode(AppMode::Chat))
-        );
+        assert_eq!(parse("Komando Chat"), Some(Command::SetMode(AppMode::Chat)));
     }
 
     #[test]
     fn parse_commando_variant() {
-        assert_eq!(
-            parse("Commando Status"),
-            Some(Command::Status)
-        );
+        assert_eq!(parse("Commando Status"), Some(Command::Status));
     }
 
     #[test]

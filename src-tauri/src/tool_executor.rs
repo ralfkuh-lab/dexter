@@ -2,7 +2,9 @@
 
 use crate::dialog_manager::clear_pending_dialog;
 use crate::panel_manager::show_panel;
-use crate::state::{emit_processing, record_automation_event, AppMode, DialogOption, DialogPayload, ProcessingState};
+use crate::state::{
+    emit_processing, record_automation_event, AppMode, DialogOption, DialogPayload, ProcessingState,
+};
 use crate::{agent_session, sandbox, tools, voice, AppState, ToolsConfig, VoiceConfig};
 use tauri::{Emitter, Manager};
 
@@ -264,10 +266,9 @@ pub async fn execute_tool(
                 .and_then(|v| v.as_str())
                 .unwrap_or("chat");
 
-            let mode: AppMode = serde_json::from_value(
-                serde_json::Value::String(mode_str.to_string()),
-            )
-            .unwrap_or(AppMode::Chat);
+            let mode: AppMode =
+                serde_json::from_value(serde_json::Value::String(mode_str.to_string()))
+                    .unwrap_or(AppMode::Chat);
 
             let label = mode.to_string();
             {
@@ -285,7 +286,10 @@ pub async fn execute_tool(
                         let _ = agent_session::open_terminal(&session.name).await;
                         format!("Modus auf {} gewechselt. Terminal geöffnet.", label)
                     }
-                    Err(e) => format!("Modus auf {} gewechselt, aber Terminal-Start fehlgeschlagen: {}", label, e),
+                    Err(e) => format!(
+                        "Modus auf {} gewechselt, aber Terminal-Start fehlgeschlagen: {}",
+                        label, e
+                    ),
                 }
             } else {
                 format!("Zurück im Chat-Modus.")

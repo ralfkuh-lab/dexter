@@ -25,6 +25,7 @@ export function Orb() {
   const [appMode, setAppMode] = useState<string>("chat");
   const [dictationActive, setDictationActive] = useState<boolean>(false);
   const [dictationBuffer, setDictationBuffer] = useState<string>("");
+  const [dictationSpeech, setDictationSpeech] = useState<boolean>(false);
   const bubblesEndRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -67,15 +68,22 @@ export function Orb() {
     const unMode = listen<string>("app_mode_changed", (e) => setAppMode(e.payload));
     const unDictMode = listen<boolean>("dictation_mode_changed", (e) => {
       setDictationActive(e.payload);
-      if (!e.payload) setDictationBuffer("");
+      if (!e.payload) {
+        setDictationBuffer("");
+        setDictationSpeech(false);
+      }
     });
     const unDictBuf = listen<string>("dictation_buffer_updated", (e) => setDictationBuffer(e.payload));
+    const unDictVad = listen<{ rms: number; threshold: number; speech: boolean }>("dictation_vad", (e) => {
+      setDictationSpeech(e.payload.speech);
+    });
     return () => {
       unCfg.then((fn) => fn());
       unStats.then((fn) => fn());
       unMode.then((fn) => fn());
       unDictMode.then((fn) => fn());
       unDictBuf.then((fn) => fn());
+      unDictVad.then((fn) => fn());
     };
   }, []);
 
@@ -84,6 +92,10 @@ export function Orb() {
   const totalChunksRef = useRef<number | null>(null);
   const playedCountRef = useRef(0);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const markSpeaking = (speaking: boolean) => {
+    invoke("set_speaking", { speaking }).catch(() => {});
+  };
 
   useEffect(() => {
     bubblesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -133,6 +145,7 @@ export function Orb() {
     isPlayingRef.current = false;
     totalChunksRef.current = null;
     playedCountRef.current = 0;
+    markSpeaking(false);
   };
 
   const playNext = () => {
@@ -144,13 +157,21 @@ export function Orb() {
         totalChunksRef.current = null;
         playedCountRef.current = 0;
       }
+      markSpeaking(false);
       return;
     }
     const next = audioQueueRef.current.shift()!;
     isPlayingRef.current = true;
     const audio = new Audio(next.url);
     currentAudioRef.current = audio;
-    audio.play().catch(() => {});
+    markSpeaking(true);
+    audio.play().catch(() => {
+      URL.revokeObjectURL(next.url);
+      currentAudioRef.current = null;
+      isPlayingRef.current = false;
+      playedCountRef.current++;
+      playNext();
+    });
     audio.onended = () => { URL.revokeObjectURL(next.url); currentAudioRef.current = null; isPlayingRef.current = false; playedCountRef.current++; playNext(); };
     audio.onerror = () => { URL.revokeObjectURL(next.url); currentAudioRef.current = null; isPlayingRef.current = false; playedCountRef.current++; playNext(); };
   };
@@ -311,6 +332,8 @@ export function Orb() {
 
   const orbClass = [
     "orb-container",
+    dictationActive && "orb-dictation",
+    dictationActive && dictationSpeech && "orb-dictation-speaking",
     stage === "listening" && "orb-listening",
     stage === "transcribing" && "orb-processing",
     stage === "transcribed" && "orb-processing",
@@ -321,6 +344,7 @@ export function Orb() {
   ].filter(Boolean).join(" ");
 
   const glowAnim =
+    dictationActive ? (dictationSpeech ? "animate-pulse-slow" : "animate-breathe") :
     stage === "listening" ? "animate-pulse-slow" :
     stage === "speaking" ? "animate-speak-pulse" :
     stage === "tool_call" ? "animate-breathe-fast" :
@@ -330,6 +354,7 @@ export function Orb() {
     "animate-breathe";
 
   const ringAnim =
+    dictationActive ? (dictationSpeech ? "animate-ring-pulse" : "") :
     stage === "listening" ? "animate-ring-pulse" :
     (stage === "transcribing" || stage === "transcribed" || stage === "processing") ? "animate-spin-medium" :
     stage === "thinking" ? "animate-spin-slow" :
@@ -385,6 +410,7 @@ export function Orb() {
       {dictationActive && (
         <DictationBuffer
           buffer={dictationBuffer}
+          listening={dictationSpeech}
           onBufferChange={setDictationBuffer}
         />
       )}
@@ -454,18 +480,22 @@ export function Orb() {
       <div className="flex justify-center pb-2 pt-1 shrink-0">
         <div
           className={`${orbClass} relative w-20 h-20 cursor-pointer select-none`}
-          title={`Push to talk — hold orb or ${hotkey}`}
+          title={dictationActive ? "Diktier-Modus aktiv" : `Push to talk — hold orb or ${hotkey}`}
           onPointerDown={(e) => {
+            if (dictationActive) return;
             e.currentTarget.setPointerCapture(e.pointerId);
             beginManualRecording();
           }}
           onPointerUp={(e) => {
+            if (dictationActive) return;
             e.currentTarget.releasePointerCapture(e.pointerId);
             endManualRecording();
           }}
-          onPointerCancel={endManualRecording}
+          onPointerCancel={() => {
+            if (!dictationActive) endManualRecording();
+          }}
           onPointerLeave={() => {
-            if (mouseRecording) endManualRecording();
+            if (!dictationActive && mouseRecording) endManualRecording();
           }}
         >
           <div className={`orb-glow absolute -inset-[5%] rounded-full blur-[14px] z-[1] ${glowAnim}`} />

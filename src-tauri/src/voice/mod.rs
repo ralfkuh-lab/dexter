@@ -11,7 +11,7 @@ mod stt;
 mod tool_defs;
 mod tts;
 
-pub use audio::record_audio;
+pub use audio::{record_audio, record_continuous, AudioSegment};
 pub use llm::{
     chat_streaming, warmup_llm, OllamaToolCall, OllamaToolCallOut, StreamResult, ToolCallSource,
 };

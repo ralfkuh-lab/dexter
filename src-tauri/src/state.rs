@@ -129,6 +129,11 @@ pub struct AppState {
     pub recorded_samples: Mutex<Vec<f32>>,
     pub recording_sample_rate: Mutex<u32>,
     pub is_recording: Mutex<bool>,
+    /// True while TTS audio is playing in the frontend. Continuous dictation
+    /// uses this as a simple gate so Dexter does not transcribe itself.
+    pub is_speaking: Mutex<bool>,
+    /// Cancellation token for the continuous dictation microphone stream.
+    pub dictation_cancel: Mutex<Option<CancellationToken>>,
     /// Cancellation token for the active pipeline — cancelled when user interrupts.
     pub pipeline_cancel: Mutex<CancellationToken>,
     /// Discovered max context window for the configured LLM model, if known.

@@ -3,9 +3,7 @@
 use crate::conversation::redact_stale_tool_results;
 use crate::dialog_manager::handle_pending_dialog_answer;
 use crate::panel_manager::{build_ui_context, handle_ui_command};
-use crate::state::{
-    emit_processing, update_processing_state, AudioChunk, ProcessingState,
-};
+use crate::state::{emit_processing, update_processing_state, AudioChunk, ProcessingState};
 use crate::tool_executor::{execute_tool, forced_tool_for_transcript};
 use crate::window::reveal_main_window;
 use crate::{voice, AppState, ChatMessage, VoiceConfig};
@@ -22,6 +20,10 @@ struct DebugEvent {
 pub use crate::dialog_manager::{has_pending_dialog, resolve_pending_dialog_selection};
 
 pub fn handle_ptt_press(app: &tauri::AppHandle) {
+    if crate::dictation::is_active(app) {
+        return;
+    }
+
     {
         let state = app.state::<AppState>();
         let dialog_pending = state.pending_dialog.lock().unwrap().is_some();
@@ -60,6 +62,10 @@ pub fn handle_ptt_press(app: &tauri::AppHandle) {
 }
 
 pub fn handle_ptt_release(app: &tauri::AppHandle) {
+    if crate::dictation::is_active(app) {
+        return;
+    }
+
     update_processing_state(
         app,
         ProcessingState {
@@ -116,6 +122,146 @@ pub fn handle_ptt_release(app: &tauri::AppHandle) {
             }
         });
     });
+}
+
+pub fn start_dictation_loop(app: &tauri::AppHandle) {
+    let cancel_token = {
+        let state = app.state::<AppState>();
+        let mut active = state.dictation_cancel.lock().unwrap();
+        if active.as_ref().is_some_and(|token| !token.is_cancelled()) {
+            return;
+        }
+        let token = CancellationToken::new();
+        *active = Some(token.clone());
+        token
+    };
+
+    let (segment_tx, segment_rx) = std::sync::mpsc::channel::<voice::AudioSegment>();
+    let app_for_recording = app.clone();
+    let recording_cancel = cancel_token.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = voice::record_continuous(&app_for_recording, segment_tx, recording_cancel) {
+            eprintln!("Continuous recording error: {}", e);
+        }
+    });
+
+    let (async_tx, mut async_rx) = tokio::sync::mpsc::channel::<voice::AudioSegment>(8);
+    let bridge_cancel = cancel_token.clone();
+    std::thread::spawn(move || {
+        while !bridge_cancel.is_cancelled() {
+            match segment_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(segment) => {
+                    if async_tx.blocking_send(segment).is_err() {
+                        break;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+
+    let app_for_loop = app.clone();
+    let loop_cancel = cancel_token.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some(segment) = async_rx.recv().await {
+            if loop_cancel.is_cancelled() || !crate::dictation::is_active(&app_for_loop) {
+                break;
+            }
+
+            let config = {
+                app_for_loop
+                    .state::<AppState>()
+                    .config
+                    .lock()
+                    .unwrap()
+                    .clone()
+            };
+
+            if let Err(e) = process_dictation_segment(
+                &app_for_loop,
+                segment,
+                &config.whisper_server_url,
+                &loop_cancel,
+            )
+            .await
+            {
+                if e != "interrupted" {
+                    eprintln!("Dictation segment error: {}", e);
+                    let _ = emit_processing(
+                        &app_for_loop,
+                        ProcessingState {
+                            stage: "error".to_string(),
+                            text: e,
+                        },
+                    );
+                }
+            }
+        }
+    });
+}
+
+pub fn stop_dictation_loop(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let token = { state.dictation_cancel.lock().unwrap().take() };
+    if let Some(token) = token {
+        token.cancel();
+    }
+}
+
+async fn process_dictation_segment(
+    app: &tauri::AppHandle,
+    segment: voice::AudioSegment,
+    whisper_server_url: &str,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    emit_processing(
+        app,
+        ProcessingState {
+            stage: "transcribing".to_string(),
+            text: "Diktat wird transkribiert...".to_string(),
+        },
+    )
+    .map_err(|e: tauri::Error| e.to_string())?;
+
+    let transcript =
+        voice::transcribe_audio_http(whisper_server_url, &segment.samples, segment.sample_rate)
+            .await
+            .map_err(|e| format!("Transcription failed: {}", e))?;
+
+    if cancel.is_cancelled() || !crate::dictation::is_active(app) {
+        return Err("interrupted".to_string());
+    }
+
+    if transcript.trim().is_empty() {
+        emit_processing(
+            app,
+            ProcessingState {
+                stage: "listening".to_string(),
+                text: "Höre zu...".to_string(),
+            },
+        )
+        .map_err(|e: tauri::Error| e.to_string())?;
+        return Ok(());
+    }
+
+    let should_send = crate::dictation::append_segment(app, &transcript);
+    if should_send {
+        crate::dictation::send_buffer(app).await?;
+    }
+
+    if crate::dictation::is_active(app) && !cancel.is_cancelled() {
+        emit_processing(
+            app,
+            ProcessingState {
+                stage: "listening".to_string(),
+                text: "Höre zu...".to_string(),
+            },
+        )
+        .map_err(|e: tauri::Error| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 pub async fn process_pipeline(
@@ -375,23 +521,42 @@ async fn run_llm_pipeline(
                             .collect::<Vec<_>>()
                             .join(", ");
                         if config.debug_bubbles {
-                            let args_summary: Vec<String> = tool_calls.iter().map(|tc| {
-                                let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
-                                if tc.function.name == "run_command" {
-                                    let cmd = tc.function.arguments.get("command").and_then(|v| v.as_str()).unwrap_or("?");
-                                    format!("run_command: `{}`", cmd)
-                                } else {
-                                    let short = if args_str.len() > 60 { format!("{}…", &args_str[..57]) } else { args_str.clone() };
-                                    format!("{}: {}", tc.function.name, short)
-                                }
-                            }).collect();
-                            let calls_json = serde_json::to_string_pretty(&tool_calls.iter().map(|tc| {
-                                serde_json::json!({
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments,
-                                    "id": tc.id,
+                            let args_summary: Vec<String> = tool_calls
+                                .iter()
+                                .map(|tc| {
+                                    let args_str = serde_json::to_string(&tc.function.arguments)
+                                        .unwrap_or_default();
+                                    if tc.function.name == "run_command" {
+                                        let cmd = tc
+                                            .function
+                                            .arguments
+                                            .get("command")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("?");
+                                        format!("run_command: `{}`", cmd)
+                                    } else {
+                                        let short = if args_str.len() > 60 {
+                                            format!("{}…", &args_str[..57])
+                                        } else {
+                                            args_str.clone()
+                                        };
+                                        format!("{}: {}", tc.function.name, short)
+                                    }
                                 })
-                            }).collect::<Vec<_>>()).unwrap_or_default();
+                                .collect();
+                            let calls_json = serde_json::to_string_pretty(
+                                &tool_calls
+                                    .iter()
+                                    .map(|tc| {
+                                        serde_json::json!({
+                                            "name": tc.function.name,
+                                            "arguments": tc.function.arguments,
+                                            "id": tc.id,
+                                        })
+                                    })
+                                    .collect::<Vec<_>>(),
+                            )
+                            .unwrap_or_default();
                             let _ = app.emit(
                                 "llm_debug",
                                 DebugEvent {
@@ -631,10 +796,7 @@ async fn run_agent_session(
         &format!("{}:{}", mode, &prompt[..prompt.len().min(80)]),
     );
 
-    let _ = app.emit(
-        "assistant_text",
-        &format!("➜ {} — Eingabe gesendet", mode),
-    );
+    let _ = app.emit("assistant_text", &format!("➜ {} — Eingabe gesendet", mode));
 
     emit_processing(
         app,

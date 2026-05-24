@@ -46,7 +46,10 @@ pub async fn ensure_session(mode: &AppMode, working_dir: &PathBuf) -> Result<Ses
     let agent = agent_command(mode).ok_or_else(|| format!("Kein Agent für {}", mode))?;
 
     if tmux_session_exists(&name).await {
-        return Ok(SessionInfo { name, created: false });
+        return Ok(SessionInfo {
+            name,
+            created: false,
+        });
     }
 
     let status = Command::new("tmux")
@@ -73,7 +76,10 @@ pub async fn ensure_session(mode: &AppMode, working_dir: &PathBuf) -> Result<Ses
         return Err(format!("tmux new-session für {} fehlgeschlagen", agent));
     }
 
-    Ok(SessionInfo { name, created: true })
+    Ok(SessionInfo {
+        name,
+        created: true,
+    })
 }
 
 async fn session_is_attached(name: &str) -> bool {
@@ -85,12 +91,10 @@ async fn session_is_attached(name: &str) -> bool {
         .output()
         .await
         .map(|out| {
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .any(|line| {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    parts.len() == 2 && parts[0] == name && parts[1] != "0"
-                })
+            String::from_utf8_lossy(&out.stdout).lines().any(|line| {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                parts.len() == 2 && parts[0] == name && parts[1] != "0"
+            })
         })
         .unwrap_or(false)
 }
@@ -149,7 +153,10 @@ mod tests {
 
     #[test]
     fn session_name_format() {
-        assert_eq!(session_name(&AppMode::ClaudeSession), "dexter-claude_session");
+        assert_eq!(
+            session_name(&AppMode::ClaudeSession),
+            "dexter-claude_session"
+        );
         assert_eq!(session_name(&AppMode::AgySession), "dexter-agy_session");
     }
 

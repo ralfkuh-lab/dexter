@@ -1,6 +1,9 @@
 //! OpenAI-kompatibler `/v1/chat/completions` Streaming-Client (llama.cpp etc.).
 
-use super::{find_sentence_end, OllamaToolCall, OllamaToolCallOut, OllamaToolFunction, StreamResult, ToolCallSource};
+use super::{
+    find_sentence_end, OllamaToolCall, OllamaToolCallOut, OllamaToolFunction, StreamResult,
+    ToolCallSource,
+};
 use crate::voice::{emit_llm_stats, trim_base_url, LlmStats};
 use crate::{ChatMessage, VoiceConfig};
 use serde::{Deserialize, Serialize};
@@ -160,7 +163,9 @@ pub(super) async fn chat_streaming(
             })
         }),
         chat_template_kwargs: Some(serde_json::json!({ "enable_thinking": false })),
-        stream_options: OpenAiStreamOptions { include_usage: true },
+        stream_options: OpenAiStreamOptions {
+            include_usage: true,
+        },
     };
 
     let resp = client

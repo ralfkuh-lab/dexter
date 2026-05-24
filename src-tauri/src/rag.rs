@@ -73,9 +73,8 @@ impl RagStore {
         // Remove old chunks from this source
         db.execute("DELETE FROM chunks WHERE source = ?1", params![source])?;
 
-        let mut stmt = db.prepare(
-            "INSERT INTO chunks (source, text, embedding) VALUES (?1, ?2, ?3)",
-        )?;
+        let mut stmt =
+            db.prepare("INSERT INTO chunks (source, text, embedding) VALUES (?1, ?2, ?3)")?;
 
         for (chunk, embedding) in chunks.iter().zip(embeddings.iter()) {
             let blob = embedding_to_blob(embedding);
@@ -118,7 +117,11 @@ impl RagStore {
         }
 
         // Sort by score descending, take top_k
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(top_k);
 
         // Filter out low-relevance results
@@ -128,9 +131,12 @@ impl RagStore {
     }
 
     /// List all ingested sources with chunk counts.
-    pub fn list_sources(&self) -> Result<Vec<(String, usize)>, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn list_sources(
+        &self,
+    ) -> Result<Vec<(String, usize)>, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().unwrap();
-        let mut stmt = db.prepare("SELECT source, COUNT(*) FROM chunks GROUP BY source ORDER BY source")?;
+        let mut stmt =
+            db.prepare("SELECT source, COUNT(*) FROM chunks GROUP BY source ORDER BY source")?;
         let rows = stmt.query_map([], |row| {
             let source: String = row.get(0)?;
             let count: usize = row.get(1)?;
@@ -144,7 +150,10 @@ impl RagStore {
     }
 
     /// Delete a source from the knowledge base.
-    pub fn delete_source(&self, source: &str) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_source(
+        &self,
+        source: &str,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().unwrap();
         let deleted = db.execute("DELETE FROM chunks WHERE source = ?1", params![source])?;
         Ok(deleted)
@@ -256,10 +265,7 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
 }
 
 fn embedding_to_blob(embedding: &[f64]) -> Vec<u8> {
-    embedding
-        .iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect()
+    embedding.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
 fn blob_to_embedding(blob: &[u8]) -> Vec<f64> {

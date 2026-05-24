@@ -57,7 +57,11 @@ fn default_readable_paths() -> Vec<String> {
 }
 fn default_workspace() -> String {
     dirs::home_dir()
-        .map(|h| h.join(".voice-assistant-sandbox").to_string_lossy().to_string())
+        .map(|h| {
+            h.join(".voice-assistant-sandbox")
+                .to_string_lossy()
+                .to_string()
+        })
         .unwrap_or_else(|| "/tmp/voice-assistant-sandbox".to_string())
 }
 fn default_docker_image() -> String {
@@ -80,12 +84,7 @@ impl Default for SandboxConfig {
 // ── Blocked command patterns ──
 
 /// Commands/patterns that are never allowed regardless of mode.
-const BLOCKED_COMMANDS: &[&str] = &[
-    "sudo",
-    "su",
-    "doas",
-    "pkexec",
-];
+const BLOCKED_COMMANDS: &[&str] = &["sudo", "su", "doas", "pkexec"];
 
 const BLOCKED_PATTERNS: &[&str] = &[
     // Destructive filesystem ops
@@ -209,7 +208,11 @@ pub fn validate_command(command: &str) -> Result<(), String> {
     }
 
     // Check for pipe chains that start with a blocked command
-    for segment in command.split('|').chain(command.split("&&")).chain(command.split(';')) {
+    for segment in command
+        .split('|')
+        .chain(command.split("&&"))
+        .chain(command.split(';'))
+    {
         let seg_first = segment.trim().split_whitespace().next().unwrap_or("");
         let seg_base = seg_first.rsplit('/').next().unwrap_or(seg_first);
         if BLOCKED_COMMANDS.contains(&seg_base) {
@@ -285,10 +288,7 @@ fn platform_shell() -> (&'static str, [&'static str; 1]) {
 }
 
 /// Execute a command in guarded mode.
-fn run_guarded(
-    command: &str,
-    config: &SandboxConfig,
-) -> Result<String, String> {
+fn run_guarded(command: &str, config: &SandboxConfig) -> Result<String, String> {
     // Ensure workspace exists
     let _ = std::fs::create_dir_all(&config.workspace);
 
@@ -312,10 +312,7 @@ fn run_guarded(
 }
 
 /// Execute a command in Docker mode.
-fn run_docker(
-    command: &str,
-    config: &SandboxConfig,
-) -> Result<String, String> {
+fn run_docker(command: &str, config: &SandboxConfig) -> Result<String, String> {
     // Check if Docker is available
     let docker_check = Command::new("docker")
         .args(["info"])
@@ -325,7 +322,10 @@ fn run_docker(
 
     match docker_check {
         Ok(status) if status.success() => {}
-        _ => return Err("Docker is not running. Switch to Guarded mode in settings or start Docker Desktop.".to_string()),
+        _ => return Err(
+            "Docker is not running. Switch to Guarded mode in settings or start Docker Desktop."
+                .to_string(),
+        ),
     }
 
     let _ = std::fs::create_dir_all(&config.workspace);
@@ -486,7 +486,11 @@ mod tests {
 }
 
 /// The main entry point — validate, execute, and audit.
-pub fn execute(command: &str, config: &SandboxConfig, audit: &Mutex<AuditLog>) -> Result<String, String> {
+pub fn execute(
+    command: &str,
+    config: &SandboxConfig,
+    audit: &Mutex<AuditLog>,
+) -> Result<String, String> {
     // Validate first
     if let Err(reason) = validate_command(command) {
         if let Ok(log) = audit.lock() {

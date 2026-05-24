@@ -125,8 +125,7 @@ pub fn match_dialog_selection(transcript: &str, options: &[DialogOption]) -> Opt
         if label.is_empty() {
             continue;
         }
-        if text == label || (label.len() >= 3 && (text.contains(&label) || label.contains(&text)))
-        {
+        if text == label || (label.len() >= 3 && (text.contains(&label) || label.contains(&text))) {
             return Some(option.label.clone());
         }
     }
