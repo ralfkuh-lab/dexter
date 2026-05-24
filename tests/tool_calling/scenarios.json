@@ -104,6 +104,10 @@
   {"id": "stt_url_spoken", "prompt": "Öffne mal Heise Punkt DE", "expected_tool": "open_url", "expected_args": null, "note": "URL gesprochen"},
 
   {"id": "ambiguous_session", "prompt": "Mach mal ne Coding Session auf", "expected_tool": "ask_user", "expected_args": null, "note": "Kein Agent angegeben — sollte nachfragen welcher"},
+  {"id": "ambiguous_session_screenshot", "prompt": "Öffne eine Coding Session", "expected_tool": "ask_user", "expected_args": null, "note": "Failure case from user screenshot"},
+  {"id": "ambiguous_session_start_alternate", "prompt": "Ich will coden, mach mal ne session auf", "expected_tool": "ask_user", "expected_args": null, "note": "Alternate vague session start"},
+  {"id": "ambiguous_session_german", "prompt": "Starte Programmiersitzung", "expected_tool": "ask_user", "expected_args": null, "note": "German alternate vague session start"},
+  {"id": "ambiguous_session_short", "prompt": "Session öffnen", "expected_tool": "ask_user", "expected_args": null, "note": "Short alternate vague session start"},
   {"id": "ambiguous_unclear", "prompt": "Kannst du das mal machen?", "expected_tool": null, "expected_args": null, "note": "Zu vage — sollte als Konversation behandelt werden oder nachfragen"},
 
   {"id": "stt_noise_prefix", "prompt": "Ähm ja also wie spät ist es jetzt?", "expected_tool": "get_current_time", "expected_args": null, "note": "STT-typische Füllwörter"},
