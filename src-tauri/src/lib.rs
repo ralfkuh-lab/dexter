@@ -60,6 +60,7 @@ pub fn run() {
             let clear_item = MenuItemBuilder::with_id("clear", "Clear Chat").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
+            #[allow(unused_variables)]
             let menu = MenuBuilder::new(app)
                 .item(&text_input_item)
                 .item(&tts_toggle_item)
@@ -69,20 +70,14 @@ pub fn run() {
                 .item(&quit_item)
                 .build()?;
 
-            let _tray = TrayIconBuilder::new()
+            let mut tray_builder = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .menu_on_left_click(false)
                 .tooltip(format!(
                     "Voice Assistant — Hold {} to talk",
                     app.state::<AppState>().config.lock().unwrap().hotkey
                 ))
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click {
-                        button: tauri::tray::MouseButton::Left,
-                        ..
-                    } = event
-                    {
+                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
@@ -134,8 +129,16 @@ pub fn run() {
                         app.exit(0);
                     }
                     _ => {}
-                })
-                .build(app)?;
+                });
+
+            // Linux AppIndicator zeigt bei jedem Klick das Menü — kein separater
+            // Links-/Rechtsklick möglich. Menü daher nur auf macOS setzen.
+            #[cfg(target_os = "macos")]
+            {
+                tray_builder = tray_builder.menu(&menu);
+            }
+
+            let _tray = tray_builder.build(app)?;
 
             // Register global PTT shortcut from config so it works when window is hidden.
             let initial_hotkey = app
