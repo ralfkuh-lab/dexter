@@ -618,8 +618,8 @@ async fn run_agent_session(
 
     let session = agent_session::ensure_session(mode, &working_dir).await?;
 
+    agent_session::open_terminal(&session.name).await?;
     if session.created {
-        agent_session::open_terminal(&session.name).await?;
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
@@ -666,9 +666,7 @@ fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
                         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                     match crate::agent_session::ensure_session(&mode, &working_dir).await {
                         Ok(session) => {
-                            if session.created {
-                                let _ = crate::agent_session::open_terminal(&session.name).await;
-                            }
+                            let _ = crate::agent_session::open_terminal(&session.name).await;
                         }
                         Err(e) => {
                             eprintln!("Agent-Session konnte nicht gestartet werden: {}", e);
