@@ -245,6 +245,10 @@ fn default_hotkey() -> String {
     "F9".to_string()
 }
 
+fn default_dictation_hotkey() -> String {
+    "F10".to_string()
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WindowConfig {
     #[serde(default)]
@@ -301,6 +305,8 @@ pub struct VoiceConfig {
     pub window: WindowConfig,
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
+    #[serde(default = "default_dictation_hotkey")]
+    pub dictation_hotkey: String,
     #[serde(default = "default_true")]
     pub show_stats: bool,
     #[serde(default = "default_true")]
@@ -324,6 +330,7 @@ impl Default for VoiceConfig {
             sandbox: sandbox::SandboxConfig::default(),
             window: WindowConfig::default(),
             hotkey: default_hotkey(),
+            dictation_hotkey: default_dictation_hotkey(),
             show_stats: true,
             tts_enabled: true,
         }

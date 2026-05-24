@@ -149,6 +149,14 @@ pub fn run() {
                 .hotkey
                 .clone();
             backend::register_ptt_shortcut(app.handle(), &initial_hotkey)?;
+            let dictation_hotkey = app
+                .state::<AppState>()
+                .config
+                .lock()
+                .unwrap()
+                .dictation_hotkey
+                .clone();
+            backend::register_dictation_shortcut(app.handle(), &dictation_hotkey)?;
             automation::start(app.handle().clone());
 
             // Probe the LLM backend for max context window (non-blocking).

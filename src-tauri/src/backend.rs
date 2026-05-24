@@ -90,3 +90,20 @@ pub fn register_ptt_shortcut(
             ShortcutState::Released => pipeline::handle_ptt_release(app),
         })
 }
+
+pub fn register_dictation_shortcut(
+    app: &tauri::AppHandle,
+    shortcut: &str,
+) -> Result<(), tauri_plugin_global_shortcut::Error> {
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _shortcut, event| {
+            if matches!(event.state, ShortcutState::Pressed) {
+                if crate::dictation::is_active(app) {
+                    crate::dictation::deactivate(app);
+                } else {
+                    crate::dictation::activate(app);
+                    crate::window::reveal_main_window(app);
+                }
+            }
+        })
+}
