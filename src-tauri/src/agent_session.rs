@@ -76,7 +76,29 @@ pub async fn ensure_session(mode: &AppMode, working_dir: &PathBuf) -> Result<Ses
     Ok(SessionInfo { name, created: true })
 }
 
+async fn session_is_attached(name: &str) -> bool {
+    Command::new("tmux")
+        .args(["list-sessions", "-F", "#{session_name} #{session_attached}"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|line| {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    parts.len() == 2 && parts[0] == name && parts[1] != "0"
+                })
+        })
+        .unwrap_or(false)
+}
+
 pub async fn open_terminal(session_name: &str) -> Result<(), String> {
+    if session_is_attached(session_name).await {
+        return Ok(());
+    }
     Command::new("gnome-terminal")
         .args(["--", "tmux", "attach-session", "-t", session_name])
         .stdin(std::process::Stdio::null())
