@@ -72,6 +72,7 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
+                .menu_on_left_click(false)
                 .tooltip(format!(
                     "Voice Assistant — Hold {} to talk",
                     app.state::<AppState>().config.lock().unwrap().hotkey
@@ -194,6 +195,12 @@ pub fn run() {
                             cfg.window.x = Some(pos.x);
                             cfg.window.y = Some(pos.y);
                             cfg.save();
+                        }
+                    }
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let _ = win.hide();
                         }
                     }
                     _ => {}
