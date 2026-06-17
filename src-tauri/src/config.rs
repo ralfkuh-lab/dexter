@@ -97,6 +97,9 @@ pub fn core_system_prompt() -> &'static str {
             std::env::current_dir()
                 .unwrap_or_default()
                 .join("system-prompt.md"),
+            std::env::current_dir()
+                .unwrap_or_default()
+                .join("../system-prompt.md"),
         ];
 
         for path in &candidates {

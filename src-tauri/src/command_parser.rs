@@ -7,6 +7,7 @@ pub enum Command {
     SetMode(AppMode),
     Status,
     ToggleDictation,
+    ToggleHandsFree,
 }
 
 const KOMMANDO_PREFIXES: &[&str] = &[
@@ -36,6 +37,10 @@ pub fn parse(transcript: &str) -> Option<Command> {
         "status" => Some(Command::Status),
         "diktat" | "diktieren" | "dictation" | "diktier" | "dictat" => {
             Some(Command::ToggleDictation)
+        }
+        "handsfree" | "hands-free" | "hands free" | "freies sprechen" | "frei sprechen"
+        | "unterhaltung" | "gespräch" | "gespraech" | "zuhören" | "zuhoeren" => {
+            Some(Command::ToggleHandsFree)
         }
         _ if matches_coding_session(rest, "codex") => Some(Command::SetMode(AppMode::CodexSession)),
         _ if matches_coding_session(rest, "claude") => {
@@ -138,6 +143,18 @@ mod tests {
     #[test]
     fn parse_unknown_command_returns_none() {
         assert_eq!(parse("Kommando fliegendes Einhorn"), None);
+    }
+
+    #[test]
+    fn parse_hands_free() {
+        assert_eq!(
+            parse("Kommando freies Sprechen"),
+            Some(Command::ToggleHandsFree)
+        );
+        assert_eq!(
+            parse("Dexter Kommando hands free"),
+            Some(Command::ToggleHandsFree)
+        );
     }
 
     #[test]

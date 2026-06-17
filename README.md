@@ -28,7 +28,9 @@ Dexter has two kinds of modes, switched by voice commands:
 | **agy Session** | "Kommando Session agy" | Voice goes to agy CLI |
 | **opencode Session** | "Kommando Session opencode" | Voice goes to opencode CLI |
 
-In session modes, Dexter starts the CLI agent in a **tmux session** with a visible terminal window. Voice input is sent via `tmux send-keys` — you see the agent working in real time.
+In session modes, Dexter starts the CLI agent in a **tmux session** with a visible terminal window. Normal push-to-talk voice input is sent via `tmux send-keys` — you see the agent working in real time.
+
+Hands-free mode keeps the microphone open. In coding-agent sessions, hands-free speech is first shown in a large **Agent Draft** window: Dexter's LLM turns casual spoken German, corrections, and afterthoughts into a polished prompt. Short pauses do not submit anything. The prompt is sent to the coding agent only after a clear submit intent such as "sende den Prompt ab" or by pressing the Send button.
 
 The `KOMMANDO` prefix is parsed deterministically (tolerant of STT typos like "Komando", "Commando", etc.) and never sent to the LLM.
 
@@ -42,6 +44,7 @@ The `KOMMANDO` prefix is parsed deterministically (tolerant of STT typos like "K
 │  │  ├── Pipeline (STT→LLM→TTS)      │                  │
 │  │  ├── Command Parser (KOMMANDO)    │                  │
 │  │  ├── Agent Sessions (tmux)        │                  │
+│  │  ├── Agent Draft (hands-free)     │                  │
 │  │  ├── Tool Executor (10 tools)     │                  │
 │  │  ├── Dialog / Panel Manager       │                  │
 │  │  ├── Automation API (:9877)       │                  │
@@ -97,6 +100,8 @@ Local HTTP API on `127.0.0.1:9877` for E2E testing and scripting:
 ```bash
 curl http://127.0.0.1:9877/state                                          # App state
 curl -X POST http://127.0.0.1:9877/text -H 'content-type: application/json' -d '{"text":"Hello"}'
+curl -X POST http://127.0.0.1:9877/hands-free/toggle -H 'content-type: application/json' -d '{}'
+curl -X POST http://127.0.0.1:9877/agent-draft/segment -H 'content-type: application/json' -d '{"text":"Sag Claude mal ..."}'
 curl -X POST http://127.0.0.1:9877/quit -H 'content-type: application/json' -d '{}'
 ```
 

@@ -126,8 +126,7 @@ pub fn record_audio(
 }
 
 /// Record continuously and split speech into segments with a simple energy VAD.
-/// Segments are sent through `segment_tx` until `cancel` is cancelled or
-/// dictation mode is deactivated.
+/// Segments are sent through `segment_tx` until `cancel` is cancelled.
 pub fn record_continuous(
     app: &tauri::AppHandle,
     segment_tx: mpsc::Sender<AudioSegment>,
@@ -217,7 +216,7 @@ pub fn record_continuous(
 
     stream.play()?;
 
-    while !cancel.is_cancelled() && crate::dictation::is_active(app) {
+    while !cancel.is_cancelled() {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 

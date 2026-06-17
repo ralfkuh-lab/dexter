@@ -1,12 +1,15 @@
 //! Alle `#[tauri::command]`-Funktionen — die Brücke vom Frontend zum Rust-Backend.
 
-use crate::backend::{refresh_ctx_max, register_ptt_shortcut, warmup_llm_async};
+use crate::backend::{
+    refresh_ctx_max, register_dictation_shortcut, register_ptt_shortcut, warmup_llm_async,
+};
 use crate::config::{core_system_prompt, system_info};
 use crate::pipeline::{
     has_pending_dialog, process_pipeline, process_text_input, resolve_pending_dialog_selection,
 };
 use crate::state::{
-    emit_processing, record_console_error, update_processing_state, PanelInfo, ProcessingState,
+    emit_processing, record_console_error, update_processing_state, AgentDraftInfo, PanelInfo,
+    ProcessingState,
 };
 use crate::window::reveal_main_window;
 use crate::{voice, AppState, ChatMessage, VoiceConfig};
@@ -39,6 +42,41 @@ pub fn update_dictation_buffer(app: tauri::AppHandle, text: String) {
 #[tauri::command]
 pub async fn send_dictation(app: tauri::AppHandle) -> Result<(), String> {
     crate::dictation::send_buffer(&app).await
+}
+
+#[tauri::command]
+pub fn toggle_hands_free(app: tauri::AppHandle) {
+    if crate::hands_free::is_active(&app) {
+        crate::hands_free::deactivate(&app);
+    } else {
+        crate::hands_free::activate(&app);
+        reveal_main_window(&app);
+    }
+}
+
+#[tauri::command]
+pub fn get_hands_free_state(app: tauri::AppHandle) -> bool {
+    crate::hands_free::is_active(&app)
+}
+
+#[tauri::command]
+pub fn get_agent_draft_state(app: tauri::AppHandle) -> AgentDraftInfo {
+    crate::agent_draft::current(&app)
+}
+
+#[tauri::command]
+pub fn update_agent_draft(app: tauri::AppHandle, text: String) {
+    crate::agent_draft::set_content(&app, text);
+}
+
+#[tauri::command]
+pub async fn submit_agent_draft(app: tauri::AppHandle) -> Result<(), String> {
+    crate::agent_draft::submit(&app).await
+}
+
+#[tauri::command]
+pub fn clear_agent_draft(app: tauri::AppHandle) {
+    crate::agent_draft::clear(&app);
 }
 
 #[tauri::command]
@@ -78,10 +116,11 @@ pub fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: 
         let _ = window.set_decorations(config.window.decorations);
     }
 
-    let (old_hotkey, old_base, old_model, old_provider, old_prompt) = {
+    let (old_hotkey, old_dictation_hotkey, old_base, old_model, old_provider, old_prompt) = {
         let cfg = state.config.lock().unwrap();
         (
             cfg.hotkey.clone(),
+            cfg.dictation_hotkey.clone(),
             cfg.llm_base_url.clone(),
             cfg.llm_model.clone(),
             cfg.llm_provider.clone(),
@@ -94,6 +133,18 @@ pub fn set_config(app: tauri::AppHandle, state: tauri::State<AppState>, config: 
             eprintln!("Failed to register hotkey {:?}: {}", config.hotkey, e);
             // Fall back to old hotkey so the user isn't left without PTT.
             let _ = register_ptt_shortcut(&app, &old_hotkey);
+        }
+    }
+    if old_dictation_hotkey != config.dictation_hotkey {
+        let _ = app
+            .global_shortcut()
+            .unregister(old_dictation_hotkey.as_str());
+        if let Err(e) = register_dictation_shortcut(&app, &config.dictation_hotkey) {
+            eprintln!(
+                "Failed to register dictation hotkey {:?}: {}",
+                config.dictation_hotkey, e
+            );
+            let _ = register_dictation_shortcut(&app, &old_dictation_hotkey);
         }
     }
 
@@ -268,7 +319,7 @@ pub fn delete_knowledge_source(app: tauri::AppHandle, source: String) -> Result<
 
 #[tauri::command]
 pub fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
-    if crate::dictation::is_active(&app) {
+    if crate::dictation::is_active(&app) || crate::hands_free::is_active(&app) {
         return Ok(());
     }
 
@@ -376,7 +427,7 @@ pub fn submit_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn stop_recording_and_process(app: tauri::AppHandle) -> Result<(), String> {
-    if crate::dictation::is_active(&app) {
+    if crate::dictation::is_active(&app) || crate::hands_free::is_active(&app) {
         return Ok(());
     }
 

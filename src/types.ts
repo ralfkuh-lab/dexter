@@ -48,6 +48,7 @@ export interface VoiceConfig {
   sandbox: SandboxConfig;
   window: WindowConfig;
   hotkey: string;
+  dictation_hotkey: string;
   show_stats: boolean;
   tts_enabled: boolean;
 }
@@ -74,6 +75,14 @@ export interface DialogOption {
 export interface DialogPayload {
   question: string;
   options: DialogOption[];
+}
+
+export interface AgentDraftInfo {
+  mode: string;
+  content: string;
+  spoken_log: string[];
+  last_segment: string;
+  status: string;
 }
 
 export interface ChatBubble {

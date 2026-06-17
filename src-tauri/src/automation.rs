@@ -1,7 +1,7 @@
 use crate::pipeline::{handle_ptt_press, handle_ptt_release, resolve_pending_dialog_selection};
 use crate::state::{
-    emit_processing, record_automation_event, AutomationEvent, ChatMessage, ConsoleError,
-    ProcessingState,
+    emit_processing, record_automation_event, AgentDraftInfo, AutomationEvent, ChatMessage,
+    ConsoleError, ProcessingState,
 };
 use crate::{commands, AppState};
 use axum::{
@@ -81,6 +81,11 @@ struct TextRequest {
 }
 
 #[derive(Deserialize)]
+struct AgentDraftSegmentRequest {
+    text: String,
+}
+
+#[derive(Deserialize)]
 struct DialogAnswerRequest {
     selected: String,
 }
@@ -109,6 +114,7 @@ struct WaitResponse {
 struct AutomationStateResponse {
     ok: bool,
     app_mode: String,
+    hands_free_active: bool,
     dictation_active: bool,
     dictation_buffer: String,
     processing_stage: String,
@@ -118,6 +124,7 @@ struct AutomationStateResponse {
     recent_messages: Vec<ChatMessage>,
     panel: Option<AutomationPanelState>,
     dialog: Option<AutomationDialogState>,
+    agent_draft: AgentDraftInfo,
     tts_enabled: bool,
     llm_model: String,
 }
@@ -154,6 +161,8 @@ pub fn start(app: AppHandle) {
             .route("/events", get(get_events))
             .route("/console/errors", get(get_console_errors))
             .route("/text", post(post_text))
+            .route("/agent-draft/segment", post(post_agent_draft_segment))
+            .route("/hands-free/toggle", post(post_hands_free_toggle))
             .route("/ptt/press", post(post_ptt_press))
             .route("/ptt/release", post(post_ptt_release))
             .route("/ptt/cancel", post(post_ptt_cancel))
@@ -214,9 +223,40 @@ async fn post_text(
     }))
 }
 
+async fn post_agent_draft_segment(
+    State(state): State<AutomationState>,
+    Json(req): Json<AgentDraftSegmentRequest>,
+) -> ApiResult<OkResponse> {
+    let text = req.text.trim().to_string();
+    if text.is_empty() {
+        return Err(ApiError::bad_request("text must not be empty"));
+    }
+
+    let config = state.app.state::<AppState>().config.lock().unwrap().clone();
+    crate::agent_draft::process_segment(&state.app, &text, &config)
+        .await
+        .map_err(ApiError::bad_request)?;
+    record_automation_event(
+        &state.app,
+        "automation.agent_draft_segment",
+        truncate_for_log(&text, 120),
+    );
+    Ok(Json(OkResponse { ok: true }))
+}
+
 async fn post_ptt_press(State(state): State<AutomationState>) -> ApiResult<OkResponse> {
     handle_ptt_press(&state.app);
     record_automation_event(&state.app, "automation.ptt_press", "PTT pressed");
+    Ok(Json(OkResponse { ok: true }))
+}
+
+async fn post_hands_free_toggle(State(state): State<AutomationState>) -> ApiResult<OkResponse> {
+    commands::toggle_hands_free(state.app.clone());
+    record_automation_event(
+        &state.app,
+        "automation.hands_free_toggle",
+        "Hands-free toggled",
+    );
     Ok(Json(OkResponse { ok: true }))
 }
 
@@ -345,12 +385,15 @@ fn snapshot_state(app: &AppHandle) -> AutomationStateResponse {
     drop(config);
     let is_recording = *state.is_recording.lock().unwrap();
     let app_mode = state.app_mode.lock().unwrap().to_string();
+    let hands_free_active = *state.hands_free_active.lock().unwrap();
     let dictation_active = *state.dictation_active.lock().unwrap();
     let dictation_buffer = state.dictation_buffer.lock().unwrap().clone();
+    let agent_draft = state.ui_state.lock().unwrap().agent_draft.clone();
 
     AutomationStateResponse {
         ok: true,
         app_mode,
+        hands_free_active,
         dictation_active,
         dictation_buffer,
         processing_stage: processing.stage,
@@ -360,6 +403,7 @@ fn snapshot_state(app: &AppHandle) -> AutomationStateResponse {
         recent_messages,
         panel,
         dialog,
+        agent_draft,
         tts_enabled,
         llm_model,
     }
@@ -369,6 +413,7 @@ fn condition_met(app: &AppHandle, condition: &str) -> bool {
     let state = app.state::<AppState>();
     match condition {
         "idle" => state.processing.lock().unwrap().stage == "idle",
+        "hands_free" => *state.hands_free_active.lock().unwrap(),
         "recording" => *state.is_recording.lock().unwrap(),
         "dialog.shown" => state.pending_dialog.lock().unwrap().is_some(),
         "panel.open" => state.ui_state.lock().unwrap().panel.is_some(),

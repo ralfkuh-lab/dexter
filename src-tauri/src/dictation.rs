@@ -18,7 +18,23 @@ pub fn parse_dictation_command(text: &str) -> Option<DictationCommand> {
 
     if matches!(
         t.as_str(),
-        "absenden" | "senden" | "fertig" | "over" | "abschicken" | "send"
+        "absenden"
+            | "senden"
+            | "sende"
+            | "sende das"
+            | "fertig"
+            | "over"
+            | "abschicken"
+            | "schick ab"
+            | "schick das ab"
+            | "abschicken bitte"
+            | "send"
+            | "enter"
+            | "return"
+            | "eingabe"
+            | "an claude senden"
+            | "an codex senden"
+            | "an den agent senden"
     ) {
         return Some(DictationCommand::Send);
     }
@@ -54,6 +70,10 @@ pub fn parse_dictation_command(text: &str) -> Option<DictationCommand> {
 }
 
 pub fn activate(app: &tauri::AppHandle) {
+    if crate::hands_free::is_active(app) {
+        crate::hands_free::deactivate(app);
+    }
+
     {
         let state = app.state::<AppState>();
         *state.is_recording.lock().unwrap() = false;
@@ -245,6 +265,18 @@ mod tests {
         );
         assert_eq!(
             parse_dictation_command("FERTIG"),
+            Some(DictationCommand::Send)
+        );
+        assert_eq!(
+            parse_dictation_command("sende das"),
+            Some(DictationCommand::Send)
+        );
+        assert_eq!(
+            parse_dictation_command("Enter"),
+            Some(DictationCommand::Send)
+        );
+        assert_eq!(
+            parse_dictation_command("an Claude senden"),
             Some(DictationCommand::Send)
         );
     }

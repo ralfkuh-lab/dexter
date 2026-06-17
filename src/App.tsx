@@ -1,4 +1,5 @@
 import "./App.css";
+import { AgentDraft } from "./agent-draft/AgentDraft";
 import { useAutomationConsoleLogging } from "./automation/console";
 import { Orb } from "./orb/Orb";
 import { Panel } from "./panel/Panel";
@@ -15,6 +16,9 @@ function App() {
   }
   if (view === "panel") {
     return <Panel />;
+  }
+  if (view === "agent-draft") {
+    return <AgentDraft />;
   }
   return <Orb />;
 }

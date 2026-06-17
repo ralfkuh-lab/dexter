@@ -48,9 +48,19 @@ pub struct PanelInfo {
     pub content: String,
 }
 
+#[derive(Clone, Serialize, Default)]
+pub struct AgentDraftInfo {
+    pub mode: String,
+    pub content: String,
+    pub spoken_log: Vec<String>,
+    pub last_segment: String,
+    pub status: String,
+}
+
 #[derive(Default)]
 pub struct UiState {
     pub panel: Option<PanelInfo>,
+    pub agent_draft: AgentDraftInfo,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -114,6 +124,7 @@ impl std::fmt::Display for AppMode {
 
 pub struct AppState {
     pub app_mode: Mutex<AppMode>,
+    pub hands_free_active: Mutex<bool>,
     pub dictation_active: Mutex<bool>,
     pub dictation_buffer: Mutex<String>,
     pub messages: Mutex<Vec<ChatMessage>>,
@@ -134,6 +145,8 @@ pub struct AppState {
     pub is_speaking: Mutex<bool>,
     /// Cancellation token for the continuous dictation microphone stream.
     pub dictation_cancel: Mutex<Option<CancellationToken>>,
+    /// Cancellation token for the hands-free conversation microphone stream.
+    pub hands_free_cancel: Mutex<Option<CancellationToken>>,
     /// Cancellation token for the active pipeline — cancelled when user interrupts.
     pub pipeline_cancel: Mutex<CancellationToken>,
     /// Discovered max context window for the configured LLM model, if known.

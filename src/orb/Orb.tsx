@@ -23,6 +23,7 @@ export function Orb() {
   const [textInput, setTextInput] = useState<string>("");
   const [dialog, setDialog] = useState<DialogPayload | null>(null);
   const [appMode, setAppMode] = useState<string>("chat");
+  const [handsFreeActive, setHandsFreeActive] = useState<boolean>(false);
   const [dictationActive, setDictationActive] = useState<boolean>(false);
   const [dictationBuffer, setDictationBuffer] = useState<string>("");
   const [dictationSpeech, setDictationSpeech] = useState<boolean>(false);
@@ -55,6 +56,9 @@ export function Orb() {
       invoke<[boolean, string]>("get_dictation_state")
         .then(([active, buf]) => { setDictationActive(active); setDictationBuffer(buf); })
         .catch(() => {});
+      invoke<boolean>("get_hands_free_state")
+        .then((active) => setHandsFreeActive(active))
+        .catch(() => {});
       invoke<number | null>("get_ctx_max")
         .then((n) => setCtxMax(n))
         .catch(() => {});
@@ -66,6 +70,10 @@ export function Orb() {
     const unCfg = listen("config_changed", load);
     const unStats = listen<LlmStats>("llm_stats", (e) => setStats(e.payload));
     const unMode = listen<string>("app_mode_changed", (e) => setAppMode(e.payload));
+    const unHandsFree = listen<boolean>("hands_free_mode_changed", (e) => {
+      setHandsFreeActive(e.payload);
+      if (!e.payload) setDictationSpeech(false);
+    });
     const unDictMode = listen<boolean>("dictation_mode_changed", (e) => {
       setDictationActive(e.payload);
       if (!e.payload) {
@@ -81,6 +89,7 @@ export function Orb() {
       unCfg.then((fn) => fn());
       unStats.then((fn) => fn());
       unMode.then((fn) => fn());
+      unHandsFree.then((fn) => fn());
       unDictMode.then((fn) => fn());
       unDictBuf.then((fn) => fn());
       unDictVad.then((fn) => fn());
@@ -298,6 +307,11 @@ export function Orb() {
     if (!next) stopAllAudio();
   };
 
+  const toggleHandsFree = () => {
+    stopAllAudio();
+    invoke("toggle_hands_free").catch((e) => addBubble("status", String(e)));
+  };
+
   const toggleTextInput = () => {
     setTextInputVisible((v) => {
       const next = !v;
@@ -332,6 +346,8 @@ export function Orb() {
 
   const orbClass = [
     "orb-container",
+    handsFreeActive && "orb-hands-free",
+    handsFreeActive && dictationSpeech && "orb-hands-free-speaking",
     dictationActive && "orb-dictation",
     dictationActive && dictationSpeech && "orb-dictation-speaking",
     stage === "listening" && "orb-listening",
@@ -344,6 +360,7 @@ export function Orb() {
   ].filter(Boolean).join(" ");
 
   const glowAnim =
+    handsFreeActive ? (dictationSpeech ? "animate-pulse-slow" : "animate-breathe") :
     dictationActive ? (dictationSpeech ? "animate-pulse-slow" : "animate-breathe") :
     stage === "listening" ? "animate-pulse-slow" :
     stage === "speaking" ? "animate-speak-pulse" :
@@ -354,6 +371,7 @@ export function Orb() {
     "animate-breathe";
 
   const ringAnim =
+    handsFreeActive ? (dictationSpeech ? "animate-ring-pulse" : "") :
     dictationActive ? (dictationSpeech ? "animate-ring-pulse" : "") :
     stage === "listening" ? "animate-ring-pulse" :
     (stage === "transcribing" || stage === "transcribed" || stage === "processing") ? "animate-spin-medium" :
@@ -371,7 +389,7 @@ export function Orb() {
         ))}
         {(stage === "listening" || stage === "transcribing" || stage === "thinking") && (
           <div className="self-center animate-fade-in px-3 py-1 text-white/25 text-[11px] font-medium">
-            {stage === "listening" ? "Listening..." : stage === "transcribing" ? "Transcribing..." : "Thinking..."}
+            {stage === "listening" ? (handsFreeActive ? "Hands-free listening..." : "Listening...") : stage === "transcribing" ? "Transcribing..." : "Thinking..."}
           </div>
         )}
         <div ref={bubblesEndRef} />
@@ -445,6 +463,18 @@ export function Orb() {
       <div className="flex justify-end gap-1.5 px-1 pt-1 shrink-0">
         <button
           type="button"
+          onClick={toggleHandsFree}
+          className={`p-1.5 rounded-md transition-colors ${handsFreeActive ? "text-sky-200 bg-sky-400/10 hover:bg-sky-400/15" : "text-white/50 hover:text-white/80 hover:bg-white/5"}`}
+          title={handsFreeActive ? "Hands-free aktiv (klick zum Stoppen)" : "Hands-free einschalten"}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <path d="M12 19v3" />
+          </svg>
+        </button>
+        <button
+          type="button"
           onClick={toggleTts}
           className={`p-1.5 rounded-md transition-colors ${ttsEnabled ? "text-white/70 hover:text-white/90 hover:bg-white/5" : "text-white/30 hover:text-white/50 hover:bg-white/5"}`}
           title={ttsEnabled ? "Sprachausgabe an (klick zum Stummschalten)" : "Sprachausgabe aus (klick zum Aktivieren)"}
@@ -480,22 +510,35 @@ export function Orb() {
       <div className="flex justify-center pb-2 pt-1 shrink-0">
         <div
           className={`${orbClass} relative w-20 h-20 cursor-pointer select-none`}
-          title={dictationActive ? "Diktier-Modus aktiv" : `Push to talk — hold orb or ${hotkey}`}
+          title={
+            handsFreeActive
+              ? "Hands-free aktiv — klick zum Stoppen"
+              : dictationActive
+                ? "Diktier-Modus aktiv — klick zum Stoppen"
+                : `Push to talk — hold orb or ${hotkey}`
+          }
           onPointerDown={(e) => {
-            if (dictationActive) return;
+            if (handsFreeActive) {
+              toggleHandsFree();
+              return;
+            }
+            if (dictationActive) {
+              invoke("toggle_dictation").catch(() => {});
+              return;
+            }
             e.currentTarget.setPointerCapture(e.pointerId);
             beginManualRecording();
           }}
           onPointerUp={(e) => {
-            if (dictationActive) return;
+            if (handsFreeActive || dictationActive) return;
             e.currentTarget.releasePointerCapture(e.pointerId);
             endManualRecording();
           }}
           onPointerCancel={() => {
-            if (!dictationActive) endManualRecording();
+            if (!dictationActive && !handsFreeActive) endManualRecording();
           }}
           onPointerLeave={() => {
-            if (!dictationActive && mouseRecording) endManualRecording();
+            if (!dictationActive && !handsFreeActive && mouseRecording) endManualRecording();
           }}
         >
           <div className={`orb-glow absolute -inset-[5%] rounded-full blur-[14px] z-[1] ${glowAnim}`} />

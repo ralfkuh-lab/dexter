@@ -59,6 +59,3 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 - [ ] **Diagnose-Anzeige in Settings:** Config-Pfad und Endpunkt-Health live.
 
 - [ ] **Mikrofon-Device wählbar machen.** Dropdown in Settings.
-
-- [ ] **Freies-Sprechen-Modus (Mikro immer an).** VAD-Strategie, Satzende-
-  Detection, Echo-Cancellation. Erst Konzept, dann bauen.

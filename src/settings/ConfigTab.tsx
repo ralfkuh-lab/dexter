@@ -65,6 +65,13 @@ export function ConfigTab({
             placeholder="F9"
           />
         </Field>
+        <Field label="Dictation toggle hotkey">
+          <Input
+            value={config.dictation_hotkey}
+            onChange={(v) => setConfig({ ...config, dictation_hotkey: v })}
+            placeholder="F10"
+          />
+        </Field>
         <div className="text-[11px] text-white/40 leading-snug -mt-1">
           Tauri-Accelerator-Syntax, z.B. <code>F9</code>, <code>Super+F9</code>,{" "}
           <code>Control+Alt+Space</code>. Funktionstasten und nicht-textproduzierende

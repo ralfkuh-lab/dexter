@@ -20,7 +20,7 @@ struct DebugEvent {
 pub use crate::dialog_manager::{has_pending_dialog, resolve_pending_dialog_selection};
 
 pub fn handle_ptt_press(app: &tauri::AppHandle) {
-    if crate::dictation::is_active(app) {
+    if crate::dictation::is_active(app) || crate::hands_free::is_active(app) {
         return;
     }
 
@@ -62,7 +62,7 @@ pub fn handle_ptt_press(app: &tauri::AppHandle) {
 }
 
 pub fn handle_ptt_release(app: &tauri::AppHandle) {
-    if crate::dictation::is_active(app) {
+    if crate::dictation::is_active(app) || crate::hands_free::is_active(app) {
         return;
     }
 
@@ -209,6 +209,86 @@ pub fn stop_dictation_loop(app: &tauri::AppHandle) {
     }
 }
 
+pub fn start_hands_free_loop(app: &tauri::AppHandle) {
+    let cancel_token = {
+        let state = app.state::<AppState>();
+        let mut active = state.hands_free_cancel.lock().unwrap();
+        if active.as_ref().is_some_and(|token| !token.is_cancelled()) {
+            return;
+        }
+        let token = CancellationToken::new();
+        *active = Some(token.clone());
+        token
+    };
+
+    let (segment_tx, segment_rx) = std::sync::mpsc::channel::<voice::AudioSegment>();
+    let app_for_recording = app.clone();
+    let recording_cancel = cancel_token.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = voice::record_continuous(&app_for_recording, segment_tx, recording_cancel) {
+            eprintln!("Hands-free recording error: {}", e);
+        }
+    });
+
+    let (async_tx, mut async_rx) = tokio::sync::mpsc::channel::<voice::AudioSegment>(4);
+    let bridge_cancel = cancel_token.clone();
+    std::thread::spawn(move || {
+        while !bridge_cancel.is_cancelled() {
+            match segment_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(segment) => {
+                    if async_tx.blocking_send(segment).is_err() {
+                        break;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+
+    let app_for_loop = app.clone();
+    let loop_cancel = cancel_token.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some(segment) = async_rx.recv().await {
+            if loop_cancel.is_cancelled() || !crate::hands_free::is_active(&app_for_loop) {
+                break;
+            }
+
+            let config = {
+                app_for_loop
+                    .state::<AppState>()
+                    .config
+                    .lock()
+                    .unwrap()
+                    .clone()
+            };
+
+            if let Err(e) =
+                process_hands_free_segment(&app_for_loop, segment, config, &loop_cancel).await
+            {
+                if e != "interrupted" {
+                    eprintln!("Hands-free segment error: {}", e);
+                    let _ = emit_processing(
+                        &app_for_loop,
+                        ProcessingState {
+                            stage: "error".to_string(),
+                            text: e,
+                        },
+                    );
+                }
+            }
+        }
+    });
+}
+
+pub fn stop_hands_free_loop(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let token = { state.hands_free_cancel.lock().unwrap().take() };
+    if let Some(token) = token {
+        token.cancel();
+    }
+}
+
 async fn process_dictation_segment(
     app: &tauri::AppHandle,
     segment: voice::AudioSegment,
@@ -262,6 +342,125 @@ async fn process_dictation_segment(
     }
 
     Ok(())
+}
+
+async fn process_hands_free_segment(
+    app: &tauri::AppHandle,
+    segment: voice::AudioSegment,
+    config: VoiceConfig,
+    loop_cancel: &CancellationToken,
+) -> Result<(), String> {
+    emit_processing(
+        app,
+        ProcessingState {
+            stage: "transcribing".to_string(),
+            text: "Transkribiere...".to_string(),
+        },
+    )
+    .map_err(|e: tauri::Error| e.to_string())?;
+
+    let transcript = voice::transcribe_audio_http(
+        &config.whisper_server_url,
+        &segment.samples,
+        segment.sample_rate,
+    )
+    .await
+    .map_err(|e| format!("Transcription failed: {}", e))?;
+
+    if loop_cancel.is_cancelled() || !crate::hands_free::is_active(app) {
+        return Err("interrupted".to_string());
+    }
+
+    if transcript.trim().is_empty() {
+        emit_hands_free_listening(app)?;
+        return Ok(());
+    }
+
+    if should_ignore_hands_free_transcript(&transcript) {
+        emit_hands_free_listening(app)?;
+        return Ok(());
+    }
+
+    if is_agent_mode(app) {
+        crate::agent_draft::process_segment(app, &transcript, &config).await?;
+
+        if crate::hands_free::is_active(app) && !loop_cancel.is_cancelled() {
+            emit_hands_free_listening(app)?;
+        }
+
+        return Ok(());
+    }
+
+    let turn_cancel = if has_pending_dialog(app) {
+        app.state::<AppState>()
+            .pipeline_cancel
+            .lock()
+            .unwrap()
+            .clone()
+    } else {
+        let token = crate::hands_free::pipeline_cancel_token(app);
+        let _ = app.emit("pipeline_interrupted", ());
+        token
+    };
+
+    run_llm_pipeline(app.clone(), transcript, config, turn_cancel).await?;
+
+    if crate::hands_free::is_active(app) && !loop_cancel.is_cancelled() {
+        emit_hands_free_listening(app)?;
+    }
+
+    Ok(())
+}
+
+fn emit_hands_free_listening(app: &tauri::AppHandle) -> Result<(), String> {
+    emit_processing(
+        app,
+        ProcessingState {
+            stage: "listening".to_string(),
+            text: "Höre zu...".to_string(),
+        },
+    )
+    .map_err(|e: tauri::Error| e.to_string())
+}
+
+fn is_agent_mode(app: &tauri::AppHandle) -> bool {
+    *app.state::<AppState>().app_mode.lock().unwrap() != crate::state::AppMode::Chat
+}
+
+fn should_ignore_hands_free_transcript(transcript: &str) -> bool {
+    let normalized = transcript
+        .trim()
+        .trim_matches(|c: char| c.is_ascii_punctuation() || matches!(c, '…' | '„' | '“' | '”'))
+        .to_lowercase();
+
+    if normalized.is_empty() {
+        return true;
+    }
+
+    matches!(
+        normalized.as_str(),
+        "hm" | "hmm"
+            | "hmmm"
+            | "mmm"
+            | "mhm"
+            | "mh"
+            | "äh"
+            | "ähm"
+            | "eh"
+            | "ehm"
+            | "uh"
+            | "uhm"
+            | "um"
+    )
+}
+
+fn is_agent_enter_command(transcript: &str) -> bool {
+    let normalized = transcript
+        .trim()
+        .trim_matches(|c: char| c.is_ascii_punctuation() || matches!(c, '…' | '„' | '“' | '”'))
+        .to_lowercase();
+
+    matches!(normalized.as_str(), "enter" | "return" | "eingabe")
 }
 
 pub async fn process_pipeline(
@@ -389,6 +588,9 @@ async fn run_llm_pipeline(
     {
         let mode = app.state::<AppState>().app_mode.lock().unwrap().clone();
         if mode != crate::state::AppMode::Chat {
+            if is_agent_enter_command(&transcript) {
+                return run_agent_enter(&app, &mode).await;
+            }
             return run_agent_session(&app, &mode, &transcript, &config).await;
         }
     }
@@ -810,6 +1012,35 @@ async fn run_agent_session(
     Ok(())
 }
 
+async fn run_agent_enter(
+    app: &tauri::AppHandle,
+    mode: &crate::state::AppMode,
+) -> Result<(), String> {
+    use crate::agent_session;
+    use crate::state::record_automation_event;
+
+    let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let session = agent_session::ensure_session(mode, &working_dir).await?;
+
+    agent_session::open_terminal(&session.name).await?;
+    agent_session::send_enter(&session.name).await?;
+
+    record_automation_event(app, "agent.enter", mode.to_string());
+
+    let _ = app.emit("assistant_text", &format!("↵ {} — Enter gesendet", mode));
+
+    emit_processing(
+        app,
+        ProcessingState {
+            stage: "idle".to_string(),
+            text: String::new(),
+        },
+    )
+    .map_err(|e: tauri::Error| e.to_string())?;
+
+    Ok(())
+}
+
 fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
     use crate::command_parser::Command;
     use crate::state::record_automation_event;
@@ -852,5 +1083,50 @@ fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
                 record_automation_event(app, "dictation", "activated");
             }
         }
+        Command::ToggleHandsFree => {
+            if crate::hands_free::is_active(app) {
+                crate::hands_free::deactivate(app);
+                record_automation_event(app, "hands_free", "deactivated");
+            } else {
+                crate::hands_free::activate(app);
+                record_automation_event(app, "hands_free", "activated");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_agent_enter_command, should_ignore_hands_free_transcript};
+
+    #[test]
+    fn ignores_hands_free_fillers() {
+        for text in ["Mmm", "ähm", "Hm.", "…mhm…"] {
+            assert!(
+                should_ignore_hands_free_transcript(text),
+                "{text:?} should be ignored"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_short_meaningful_hands_free_inputs() {
+        for text in ["ja", "nein", "A", "OK", "teste bitte mal", "drück enter"] {
+            assert!(
+                !should_ignore_hands_free_transcript(text),
+                "{text:?} should be kept"
+            );
+        }
+    }
+
+    #[test]
+    fn recognizes_agent_enter_commands() {
+        for text in ["Enter", "return.", "Eingabe"] {
+            assert!(
+                is_agent_enter_command(text),
+                "{text:?} should be treated as Enter"
+            );
+        }
+        assert!(!is_agent_enter_command("drück enter"));
     }
 }

@@ -6,16 +6,21 @@ const COMMANDS = [
   { cmd: "lösche Satz", desc: "letzten Satz" },
   { cmd: "lösche alles", desc: "Buffer leeren" },
   { cmd: "neue Zeile", desc: "Umbruch" },
-  { cmd: "over", desc: "absenden" },
+  { cmd: "senden", desc: "abschicken" },
+  { cmd: "Enter", desc: "abschicken" },
 ];
 
 export function DictationBuffer({
   buffer,
   listening,
+  title = "Diktat",
+  onCancelCommand = "toggle_dictation",
   onBufferChange,
 }: {
   buffer: string;
   listening: boolean;
+  title?: string;
+  onCancelCommand?: "toggle_dictation" | "toggle_hands_free";
   onBufferChange: (text: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -37,7 +42,7 @@ export function DictationBuffer({
   };
 
   const cancel = () => {
-    invoke("toggle_dictation").catch(() => {});
+    invoke(onCancelCommand).catch(() => {});
   };
 
   return (
@@ -45,7 +50,7 @@ export function DictationBuffer({
       <div className="px-3 pt-2 pb-1">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[11px] font-medium text-emerald-300/70">
-            {listening ? "Nimmt auf..." : "Höre zu..."}
+            {title} · {listening ? "Nimmt auf..." : "Höre zu..."}
           </span>
           <div className="flex gap-1.5">
             <button

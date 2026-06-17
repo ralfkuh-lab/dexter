@@ -114,8 +114,28 @@ pub async fn open_terminal(session_name: &str) -> Result<(), String> {
 }
 
 pub async fn send_keys(session_name: &str, text: &str) -> Result<(), String> {
+    let text_status = Command::new("tmux")
+        .args(["send-keys", "-t", session_name, "-l", text])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .status()
+        .await
+        .map_err(|e| format!("tmux send-keys fehlgeschlagen: {}", e))?;
+
+    if !text_status.success() {
+        return Err(format!(
+            "tmux send-keys an Session '{}' fehlgeschlagen — läuft die Session noch?",
+            session_name
+        ));
+    }
+
+    send_enter(session_name).await
+}
+
+pub async fn send_enter(session_name: &str) -> Result<(), String> {
     let status = Command::new("tmux")
-        .args(["send-keys", "-t", session_name, text, "Enter"])
+        .args(["send-keys", "-t", session_name, "Enter"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())

@@ -90,6 +90,26 @@
   border-color: rgba(52, 211, 153, 0.45);
 }
 
+/* Hands-free conversation — sky/green */
+.orb-hands-free .orb-core {
+  background: radial-gradient(circle at 35% 30%, #bae6fd, #0ea5e9, #0f766e);
+}
+.orb-hands-free .orb-glow {
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.34), transparent 70%);
+}
+.orb-hands-free .orb-ring {
+  border-color: rgba(56, 189, 248, 0.32);
+}
+.orb-hands-free-speaking .orb-core {
+  background: radial-gradient(circle at 35% 30%, #e0f2fe, #38bdf8, #10b981);
+}
+.orb-hands-free-speaking .orb-glow {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.5), transparent 70%);
+}
+.orb-hands-free-speaking .orb-ring {
+  border-color: rgba(125, 211, 252, 0.48);
+}
+
 /* Error — dim red */
 .orb-error .orb-core {
   background: radial-gradient(circle at 35% 30%, #7f1d1d, #991b1b, #450a0a);
@@ -111,6 +131,12 @@
 /* Settings background */
 .settings-bg {
   background: rgba(10, 10, 24, 0.98);
+}
+
+.agent-draft-bg {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.16), transparent 42%),
+    #090b15;
 }
 
 /* Detail panel */

@@ -7,6 +7,7 @@ use tauri::{
 };
 use tokio_util::sync::CancellationToken;
 
+mod agent_draft;
 mod agent_session;
 mod automation;
 mod backend;
@@ -16,6 +17,7 @@ mod config;
 mod conversation;
 mod dialog_manager;
 mod dictation;
+mod hands_free;
 mod panel_manager;
 mod pipeline;
 mod rag;
@@ -36,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
             app_mode: Mutex::new(state::AppMode::default()),
+            hands_free_active: Mutex::new(false),
             dictation_active: Mutex::new(false),
             dictation_buffer: Mutex::new(String::new()),
             messages: Mutex::new(Vec::new()),
@@ -52,6 +55,7 @@ pub fn run() {
             is_recording: Mutex::new(false),
             is_speaking: Mutex::new(false),
             dictation_cancel: Mutex::new(None),
+            hands_free_cancel: Mutex::new(None),
             pipeline_cancel: Mutex::new(CancellationToken::new()),
             ctx_max: Mutex::new(None),
             last_stats: Mutex::new(None),
@@ -227,6 +231,12 @@ pub fn run() {
             commands::get_dictation_state,
             commands::update_dictation_buffer,
             commands::send_dictation,
+            commands::toggle_hands_free,
+            commands::get_hands_free_state,
+            commands::get_agent_draft_state,
+            commands::update_agent_draft,
+            commands::submit_agent_draft,
+            commands::clear_agent_draft,
             commands::get_app_mode,
             commands::get_config,
             commands::get_core_system_prompt,
