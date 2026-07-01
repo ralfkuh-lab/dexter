@@ -103,19 +103,25 @@ export function ToolsTab({
             />
           </Field>
 
+          <Field label="Readable Paths (Datei-Ingest & Docker-Mounts)">
+            <textarea
+              value={config.sandbox.readable_paths.join("\n")}
+              onChange={(e) => setSandbox({ readable_paths: e.target.value.split("\n").filter(Boolean) })}
+              rows={3}
+              placeholder={"~/Documents\n~/Desktop\n~/Downloads"}
+              className="w-full bg-white/[0.05] border border-white/10 text-white/90 px-3 py-2.5 rounded-lg text-[13px] font-inherit outline-none resize-y transition-all duration-200 focus:border-blue-500/50 focus:bg-white/[0.07] placeholder:text-white/20"
+            />
+            <p className="text-[11px] text-white/25 mt-1 leading-relaxed">
+              Nur Dateien unter diesen Pfaden dürfen in die Wissensbasis
+              eingelesen werden. Im Docker-Modus werden sie zusätzlich read-only
+              in den Container gemountet. Ein Pfad pro Zeile, `~` = Home.
+            </p>
+          </Field>
+
           {config.sandbox.mode === "Docker" && (
             <>
               <Field label="Docker Image">
                 <Input value={config.sandbox.docker_image} onChange={(v) => setSandbox({ docker_image: v })} />
-              </Field>
-              <Field label="Readable Paths (mounted read-only)">
-                <textarea
-                  value={config.sandbox.readable_paths.join("\n")}
-                  onChange={(e) => setSandbox({ readable_paths: e.target.value.split("\n").filter(Boolean) })}
-                  rows={3}
-                  placeholder={"~/Documents\n~/Desktop\n~/Downloads"}
-                  className="w-full bg-white/[0.05] border border-white/10 text-white/90 px-3 py-2.5 rounded-lg text-[13px] font-inherit outline-none resize-y transition-all duration-200 focus:border-blue-500/50 focus:bg-white/[0.07] placeholder:text-white/20"
-                />
               </Field>
               <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                 <div className="flex-1">

@@ -172,6 +172,12 @@ Dexter erwartet die drei Endpunkte unter:
 
 ## Konventionen
 
+- **Alles per Settings-UI konfigurierbar:** Jede Einstellung, die das Verhalten
+  steuert (Server-URLs, Modelle, TTS, Hotkeys, Sandbox inkl. `readable_paths`,
+  Tool-Toggles, …), muss über die Settings-Tabs bedienbar sein. Der User will
+  **keine** Config-Dateien von Hand pflegen. Wer ein neues Config-Feld einführt
+  oder ein bestehendes sicherheitsrelevant macht, muss es auch in der UI
+  (`src/settings/`) exponieren.
 - **User-Config:** liegt in `~/.config/voice-assistant/config.json`. Existiert
   per Default nicht, dann greifen die Defaults aus `lib.rs::VoiceConfig::default()`.
   **Wichtig:** Wenn der User die Settings einmal speichert, sind die Werte
