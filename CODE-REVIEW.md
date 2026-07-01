@@ -27,7 +27,7 @@ der Verifikation als falsch oder ungenau erwiesen, sind entsprechend markiert.
 | 1 | **Kritisch** | Sicherheit | Automation-API ohne Auth → RCE-Pfad über Browser (DNS-Rebinding/CSRF) | ✅ behoben |
 | 2 | **Hoch** | Sicherheit | `ingest_file` liest beliebige absolute Pfade (Path-Traversal / Daten-Exfil via RAG) | ✅ behoben |
 | 3 | **Hoch** | Sicherheit | Sandbox-Blocklist per Env-Var-Präfix umgehbar (`FOO=1 sudo …`) | ✅ behoben |
-| 4 | **Hoch** | Korrektheit | Ollama-Provider ignoriert `forced_tool` → Agent-Draft unzuverlässig | offen (Design-Entscheidung) |
+| 4 | **Hoch** | Korrektheit | Ollama-Provider ignoriert `forced_tool` → Agent-Draft unzuverlässig | ✅ behoben |
 | 5 | **Mittel** | Robustheit | Setup-Panik bei belegtem Hotkey → App startet nicht |
 | 6 | **Mittel** | Korrektheit | Audio-Blob-Leak bei Unterbrechung der Sprachausgabe |
 | 7 | **Mittel** | Korrektheit | Kein Debounce → IPC-/Netzwerk-Flut bei Tastatureingabe (ModelSelect u.a.) |
@@ -36,9 +36,9 @@ der Verifikation als falsch oder ungenau erwiesen, sind entsprechend markiert.
 | 10 | **Niedrig** | UX | Blockierendes `prompt()` statt nativem Datei-Dialog im KnowledgeTab |
 | 11 | **Niedrig** | Robustheit | Fehlende `.catch()` bei Settings-Init und Test-JSON-Parsing |
 
-> **Update 2026-07-01:** Findings 1–3 (Sicherheit) wurden behoben — Details am
-> Ende dieses Dokuments unter *Behebungen*. `cargo check` + `cargo test sandbox`
-> laufen grün.
+> **Update 2026-07-01:** Findings 1–4 wurden behoben — Details am Ende dieses
+> Dokuments unter *Behebungen*. `cargo check`/`tsc` kompilieren, `cargo test
+> sandbox` läuft grün.
 
 ---
 
@@ -332,3 +332,13 @@ durch Claude). Verifiziert mit `cargo check` (kompiliert) und `cargo test sandbo
 - Neue Hilfsfunktion `first_command_token` überspringt führende
   `KEY=VALUE`-Env-Zuweisungen, bevor gegen `BLOCKED_COMMANDS` geprüft wird — an
   beiden Prüfstellen (erstes Wort + Pipeline-Segmente). Regressionstest ergänzt.
+
+**Finding 4 — Ollama `forced_tool`** (`src-tauri/src/voice/llm/mod.rs`, `ollama.rs`)
+- `chat_streaming` reicht `forced_tool` jetzt auch an den Ollama-Zweig weiter.
+- Da Ollamas `/api/chat` kein `tool_choice` kennt, wird bei erzwungenem Tool das
+  JSON-Schema der Tool-Parameter als `format` (structured output) gesendet und
+  die JSON-Antwort in einen synthetischen Tool-Call umgewandelt. Normaler
+  Streaming-Pfad unverändert; Content-Fallback bei ungültigem JSON.
+- **Zugehörige UI-Änderung:** `sandbox.readable_paths` (jetzt auch Ingest-
+  Whitelist) ist in der Settings-UI in jedem Modus editierbar, nicht mehr nur
+  im Docker-Modus.
