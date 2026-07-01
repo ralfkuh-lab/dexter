@@ -285,13 +285,32 @@ pub async fn ingest_text(
 
 #[tauri::command]
 pub async fn ingest_file(app: tauri::AppHandle, path: String) -> Result<usize, String> {
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("Read failed: {}", e))?;
+    let canonical_file = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Pfad konnte nicht aufgelöst werden: {}", e))?;
+    let state = app.state::<AppState>();
+    let config = state.config.lock().unwrap().clone();
+    let home = dirs::home_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let is_allowed = config
+        .sandbox
+        .readable_paths
+        .iter()
+        .filter_map(|base| std::fs::canonicalize(base.replace('~', &home)).ok())
+        .any(|canonical_base| canonical_file.starts_with(canonical_base));
+    if !is_allowed {
+        return Err(
+            "Zugriff verweigert: Pfad liegt außerhalb der erlaubten Verzeichnisse".to_string(),
+        );
+    }
+
+    let text =
+        std::fs::read_to_string(&canonical_file).map_err(|e| format!("Read failed: {}", e))?;
     let source = std::path::Path::new(&path)
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| path.clone());
-    let state = app.state::<AppState>();
-    let config = state.config.lock().unwrap().clone();
     state
         .rag_store
         .ingest(&source, &text, &config.llm_base_url, &config.embed_model)

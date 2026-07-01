@@ -12,4 +12,5 @@ export LIBRARY_PATH="$DEXTER_ALSA/usr/lib/x86_64-linux-gnu${LIBRARY_PATH:+:$LIBR
 export LD_LIBRARY_PATH="$DEXTER_ALSA/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 cd "$ROOT_DIR"
+export DEXTER_AUTOMATION=1
 npm run tauri -- dev

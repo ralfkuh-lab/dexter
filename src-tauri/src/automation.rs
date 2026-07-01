@@ -6,7 +6,8 @@ use crate::state::{
 use crate::{commands, AppState};
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -155,6 +156,11 @@ struct ConsoleErrorsResponse {
 
 pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        if std::env::var("DEXTER_AUTOMATION").ok().as_deref() != Some("1") {
+            eprintln!("Automation API disabled (set DEXTER_AUTOMATION=1 to enable).");
+            return;
+        }
+
         let state = AutomationState { app: app.clone() };
         let router = Router::new()
             .route("/state", get(get_state))
@@ -170,7 +176,8 @@ pub fn start(app: AppHandle) {
             .route("/panel/close", post(post_panel_close))
             .route("/wait", post(post_wait))
             .route("/quit", post(post_quit))
-            .with_state(state);
+            .with_state(state)
+            .layer(middleware::from_fn(require_local_host));
 
         let listener = match tokio::net::TcpListener::bind(AUTOMATION_ADDR).await {
             Ok(listener) => listener,
@@ -186,6 +193,20 @@ pub fn start(app: AppHandle) {
             eprintln!("Automation API stopped: {}", err);
         }
     });
+}
+
+async fn require_local_host(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let host = req
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|h| h.to_str().ok());
+    match host {
+        Some("127.0.0.1:9877") | Some("localhost:9877") => Ok(next.run(req).await),
+        _ => Err(StatusCode::FORBIDDEN),
+    }
 }
 
 async fn get_state(State(state): State<AutomationState>) -> ApiResult<AutomationStateResponse> {

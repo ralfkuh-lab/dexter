@@ -190,13 +190,32 @@ impl AuditLog {
     }
 }
 
+/// Liefert das erste echte Kommando-Token eines Segments und überspringt
+/// führende Umgebungsvariablen-Zuweisungen (z. B. `FOO=1 sudo` -> `sudo`).
+fn first_command_token(segment: &str) -> &str {
+    for token in segment.split_whitespace() {
+        let is_assignment = token
+            .split_once('=')
+            .map(|(k, _)| {
+                !k.is_empty()
+                    && k.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            })
+            .unwrap_or(false);
+        if !is_assignment {
+            return token;
+        }
+    }
+    ""
+}
+
 /// Validate a command against the blocklist. Returns Err with reason if blocked.
 pub fn validate_command(command: &str) -> Result<(), String> {
     let lower = command.to_lowercase();
     let trimmed = command.trim();
 
     // Check if command starts with a blocked command
-    let first_word = trimmed.split_whitespace().next().unwrap_or("");
+    let first_word = first_command_token(trimmed);
     // Strip path prefix (e.g. /usr/bin/sudo -> sudo)
     let base_cmd = first_word.rsplit('/').next().unwrap_or(first_word);
 
@@ -213,7 +232,7 @@ pub fn validate_command(command: &str) -> Result<(), String> {
         .chain(command.split("&&"))
         .chain(command.split(';'))
     {
-        let seg_first = segment.trim().split_whitespace().next().unwrap_or("");
+        let seg_first = first_command_token(segment.trim());
         let seg_base = seg_first.rsplit('/').next().unwrap_or(seg_first);
         if BLOCKED_COMMANDS.contains(&seg_base) {
             return Err(format!(
@@ -462,11 +481,17 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{run_guarded, truncate_chars, SandboxConfig};
+    use super::{run_guarded, truncate_chars, validate_command, SandboxConfig};
 
     #[test]
     fn truncate_chars_does_not_split_multibyte_codepoints() {
         assert_eq!(truncate_chars("äöü😀xyz", 4), "äöü😀");
+    }
+
+    #[test]
+    fn command_validation_skips_leading_env_assignments() {
+        assert!(validate_command("FOO=1 sudo whoami").is_err());
+        assert!(validate_command("echo hallo").is_ok());
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
