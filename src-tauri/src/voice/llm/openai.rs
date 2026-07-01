@@ -1,8 +1,8 @@
 //! OpenAI-kompatibler `/v1/chat/completions` Streaming-Client (llama.cpp etc.).
 
 use super::{
-    find_sentence_end, OllamaToolCall, OllamaToolCallOut, OllamaToolFunction, StreamResult,
-    ToolCallSource,
+    find_sentence_end, parse_xml_tool_calls, OllamaToolCall, OllamaToolCallOut,
+    OllamaToolFunction, StreamResult, ToolCallSource,
 };
 use crate::voice::{emit_llm_stats, trim_base_url, LlmStats};
 use crate::{ChatMessage, VoiceConfig};
@@ -188,6 +188,13 @@ pub(super) async fn chat_streaming(
     let mut byte_stream = resp.bytes_stream();
     let mut line_buffer = Vec::new();
     let mut tool_call_accumulators: Vec<OpenAiToolCallAccumulator> = Vec::new();
+    let has_tools = !tools.is_empty();
+    let mut xml_collecting = false;
+    let mut xml_buffer = String::new();
+    let mut xml_tool_calls: Vec<OllamaToolCall> = Vec::new();
+
+    let xml_open_re = regex::Regex::new(r"<(?:\w+:)?tool_call>").unwrap();
+    let xml_close_re = regex::Regex::new(r"</(?:\w+:)?tool_call>").unwrap();
 
     let req_start = Instant::now();
     let mut first_token_at: Option<Instant> = None;
@@ -243,15 +250,53 @@ pub(super) async fn chat_streaming(
                         stats.ttft_ms = Some(req_start.elapsed().as_millis() as u64);
                     }
                     full_response.push_str(&content);
-                    sentence_buffer.push_str(&content);
 
-                    while let Some(split_pos) = find_sentence_end(&sentence_buffer) {
-                        let sentence: String = sentence_buffer.drain(..=split_pos).collect();
-                        let sentence = sentence.trim().to_string();
-                        if !sentence.is_empty() {
-                            spoken_text.push_str(&sentence);
-                            spoken_text.push(' ');
-                            let _ = sentence_tx.send(sentence).await;
+                    if xml_collecting {
+                        xml_buffer.push_str(&content);
+
+                        if xml_close_re.is_match(&xml_buffer) {
+                            let full_xml = format!("<tool_call>{}</tool_call>", xml_buffer);
+                            if let Some(parsed) = parse_xml_tool_calls(&full_xml) {
+                                xml_tool_calls.extend(parsed);
+                            }
+                            xml_buffer.clear();
+                            xml_collecting = false;
+                        }
+                    } else {
+                        sentence_buffer.push_str(&content);
+
+                        if has_tools && xml_open_re.find(&sentence_buffer).is_some() {
+                            let m = xml_open_re.find(&sentence_buffer).unwrap();
+                            let before = sentence_buffer[..m.start()].trim().to_string();
+                            if !before.is_empty() {
+                                spoken_text.push_str(&before);
+                                spoken_text.push(' ');
+                                let _ = sentence_tx.send(before).await;
+                            }
+                            let after_tag = &sentence_buffer[m.end()..];
+                            xml_buffer = after_tag.to_string();
+                            sentence_buffer.clear();
+                            xml_collecting = true;
+
+                            if xml_close_re.is_match(&xml_buffer) {
+                                let full_xml = format!("<tool_call>{}</tool_call>", xml_buffer);
+                                if let Some(parsed) = parse_xml_tool_calls(&full_xml) {
+                                    xml_tool_calls.extend(parsed);
+                                }
+                                xml_buffer.clear();
+                                xml_collecting = false;
+                            }
+                        } else {
+                            while let Some(split_pos) = find_sentence_end(&sentence_buffer) {
+                                let sentence: String =
+                                    sentence_buffer.drain(..=split_pos).collect();
+                                let sentence = sentence.trim().to_string();
+                                if !sentence.is_empty() {
+                                    spoken_text.push_str(&sentence);
+                                    spoken_text.push(' ');
+                                    let _ = sentence_tx.send(sentence).await;
+                                }
+                            }
                         }
                     }
                 }
@@ -302,6 +347,26 @@ pub(super) async fn chat_streaming(
             spoken_preamble: spoken_text.trim().to_string(),
             source: ToolCallSource::Native,
         });
+    }
+
+    if !xml_tool_calls.is_empty() {
+        return Ok(StreamResult::ToolCalls {
+            calls: xml_tool_calls,
+            spoken_preamble: spoken_text.trim().to_string(),
+            source: ToolCallSource::Xml,
+        });
+    }
+
+    if has_tools && !full_response.is_empty() {
+        if let Some(parsed) = parse_xml_tool_calls(&full_response) {
+            if !parsed.is_empty() {
+                return Ok(StreamResult::ToolCalls {
+                    calls: parsed,
+                    spoken_preamble: spoken_text.trim().to_string(),
+                    source: ToolCallSource::Xml,
+                });
+            }
+        }
     }
 
     let remaining = sentence_buffer.trim().to_string();

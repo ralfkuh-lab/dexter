@@ -45,6 +45,15 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 - [ ] **macOS-Pfade weiter pflegen, aber ungetestet.** Multi-Platform bleibt
   Ziel, aktive Entwicklung ist Linux. macOS-`cfg`-Branches bewusst behalten.
 
+- [ ] **Verbleibende Ollama-Reste entfernen.** Der Ollama-Chat-Client wurde
+  entfernt (läuft über OpenAI-kompatiblen Pfad / llama.cpp). Es hängen noch zwei
+  Ollama-spezifische Stellen im Code: (1) RAG-Embeddings in `rag.rs` rufen fix
+  `/api/embed` (Ollama-Format) statt `/v1/embeddings` — greift beim Umstieg auf
+  den Markdown-Vault ohnehin nicht mehr; falls RAG vorher reaktiviert wird, auf
+  OpenAI-kompatibel umstellen. (2) `tools.rs::describe_screenshot` hat einen
+  eigenen `provider == "ollama"`-Vision-Pfad (`/api/chat`) — nur aktiv bei
+  Provider „ollama", kann bleiben oder später raus.
+
 ## Knowledge-System: Markdown-Vault statt RAG-Embeddings
 
 - [ ] **Markdown-Vault als Wissensbasis.** Konfigurierbarer Ordner mit Markdown-

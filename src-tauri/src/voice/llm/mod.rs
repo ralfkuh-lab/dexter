@@ -1,4 +1,4 @@
-//! Streaming-Chat-Clients (Ollama-native & OpenAI-kompatibel) plus geteilte
+//! OpenAI-kompatibler Streaming-Chat-Client plus geteilte
 //! Hilfen für Satz-Splitting und XML-Tool-Call-Parsing.
 
 use crate::{ChatMessage, VoiceConfig};
@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
-mod ollama;
 mod openai;
 
 /// Serializable tool call (for sending back to Ollama in assistant messages).
@@ -87,9 +86,6 @@ pub async fn chat_streaming(
     forced_tool: Option<&str>,
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
-    if config.llm_provider == "ollama" {
-        return ollama::chat_streaming(app, config, messages, tools, forced_tool, sentence_tx).await;
-    }
     openai::chat_streaming(app, config, messages, tools, forced_tool, sentence_tx).await
 }
 
@@ -108,11 +104,7 @@ pub async fn warmup_llm(app: &tauri::AppHandle, config: &VoiceConfig) {
         Err(_) => return,
     };
 
-    let result = if config.llm_provider == "ollama" {
-        ollama::warmup(&client, config).await
-    } else {
-        openai::warmup(&client, config).await
-    };
+    let result = openai::warmup(&client, config).await;
 
     let resp = match result {
         Ok(r) => r,
