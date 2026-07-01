@@ -33,3 +33,10 @@ piper-voices/
 .venv-chatterbox/
 
 .claude/persist/
+
+# Symlink auf das gebaute .deb (siehe scripts, target/ ist ohnehin ignoriert)
+/Dexter.deb
+
+# Von `cargo tauri icon` erzeugte Mobile-Icons — dieses Projekt ist Desktop-only
+src-tauri/icons/android/
+src-tauri/icons/ios/

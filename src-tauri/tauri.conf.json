@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Voice Assistant",
+  "productName": "Dexter",
   "version": "0.1.0",
   "identifier": "com.codacus.voice-assistant",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Voice Assistant",
+        "title": "Dexter",
         "width": 380,
         "height": 420,
         "resizable": true,
@@ -32,7 +32,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb"],
+    "category": "Utility",
+    "shortDescription": "Voice-first Desktop-Assistent",
+    "longDescription": "Dexter ist ein sprachgesteuerter Desktop-Assistent: Push-to-Talk-Diktat, lokales LLM (llama.cpp), Piper-TTS, Tools und Sprach-Routing an CLI-Coding-Agenten.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
