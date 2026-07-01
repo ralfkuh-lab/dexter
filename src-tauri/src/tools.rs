@@ -623,17 +623,158 @@ pub async fn web_fetch(url: &str) -> Result<String, String> {
     }
 }
 
+/// Search the web through a SearXNG JSON API and return compact LLM context.
+pub async fn web_search(
+    searxng_url: &str,
+    query: &str,
+    max_results: usize,
+) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0")
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let endpoint = format!("{}/search", searxng_url.trim_end_matches('/'));
+    let response = client
+        .get(&endpoint)
+        .query(&[("q", query), ("format", "json")])
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_connect() || e.is_timeout() {
+                format!(
+                    "SearXNG request failed: {} Is the SearXNG service running? Start it via Local-AI Cockpit.",
+                    e
+                )
+            } else {
+                format!("SearXNG request failed: {}", e)
+            }
+        })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("SearXNG returned HTTP {}.", status));
+    }
+
+    let json = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("SearXNG returned invalid JSON: {}", e))?;
+
+    Ok(format_search_results(&json, query, max_results))
+}
+
+pub fn format_search_results(json: &serde_json::Value, query: &str, max_results: usize) -> String {
+    let mut sections = Vec::new();
+
+    if let Some(answers) = json.get("answers").and_then(|value| value.as_array()) {
+        let answer_lines = answers
+            .iter()
+            .filter_map(|answer| answer.as_str())
+            .filter(|answer| !answer.trim().is_empty())
+            .map(|answer| format!("Answer: {}", answer.trim()))
+            .collect::<Vec<_>>();
+        if !answer_lines.is_empty() {
+            sections.push(answer_lines.join("\n"));
+        }
+    }
+
+    let results = json
+        .get("results")
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+
+    if results.is_empty() {
+        sections.push(format!("No results for '{}'.", query));
+        return sections.join("\n\n");
+    }
+
+    let formatted_results = results
+        .iter()
+        .take(max_results)
+        .enumerate()
+        .map(|(index, result)| {
+            let title = result
+                .get("title")
+                .and_then(|value| value.as_str())
+                .unwrap_or("(untitled)")
+                .trim();
+            let url = result
+                .get("url")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .trim();
+            let content = result
+                .get("content")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let snippet = truncate_search_snippet(content, 250);
+            format!("{}. {}\n   {}\n   {}", index + 1, title, url, snippet)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    sections.push(formatted_results);
+
+    sections.join("\n\n")
+}
+
+fn truncate_search_snippet(text: &str, max_chars: usize) -> String {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let total_chars = normalized.chars().count();
+    if total_chars <= max_chars {
+        return normalized;
+    }
+    if max_chars <= 3 {
+        return ".".repeat(max_chars);
+    }
+    format!("{}...", truncate_chars(&normalized, max_chars - 3))
+}
+
 fn truncate_chars(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_chars;
+    use super::{format_search_results, truncate_chars};
 
     #[test]
     fn truncate_chars_does_not_split_multibyte_codepoints() {
         assert_eq!(truncate_chars("äöü😀xyz", 4), "äöü😀");
+    }
+
+    #[test]
+    fn format_search_results_formats_answers_and_limited_results() {
+        let json = serde_json::json!({
+            "answers": ["Berlin has about 3.9 million residents."],
+            "results": [
+                {
+                    "title": "Berlin population",
+                    "url": "https://example.com/berlin",
+                    "content": "Current population data for Berlin."
+                },
+                {
+                    "title": "Statistics office",
+                    "url": "https://example.com/statistics",
+                    "content": "Official figures.\nUpdated regularly."
+                },
+                {
+                    "title": "Excluded result",
+                    "url": "https://example.com/excluded",
+                    "content": "This result must not be included."
+                }
+            ]
+        });
+
+        assert_eq!(
+            format_search_results(&json, "Berlin population", 2),
+            "Answer: Berlin has about 3.9 million residents.\n\n\
+             1. Berlin population\n   https://example.com/berlin\n   Current population data for Berlin.\n\n\
+             2. Statistics office\n   https://example.com/statistics\n   Official figures. Updated regularly."
+        );
     }
 }
 

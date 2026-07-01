@@ -27,19 +27,25 @@
     "id": "switch_agy",
     "prompt": "Öffne eine Coding Session mit agy",
     "expected_tool": "switch_mode",
-    "expected_args": {"mode": "agy_session"}
+    "expected_args": {
+      "mode": "agy_session"
+    }
   },
   {
     "id": "switch_claude",
     "prompt": "Starte eine Claude Coding Session",
     "expected_tool": "switch_mode",
-    "expected_args": {"mode": "claude_session"}
+    "expected_args": {
+      "mode": "claude_session"
+    }
   },
   {
     "id": "switch_chat",
     "prompt": "Geh zurück in den Chat Modus",
     "expected_tool": "switch_mode",
-    "expected_args": {"mode": "chat"}
+    "expected_args": {
+      "mode": "chat"
+    }
   },
   {
     "id": "run_ls",
@@ -90,26 +96,143 @@
     "expected_args": null,
     "note": "Sollte zuerst run_command aufrufen, dann show_panel mit dem Ergebnis"
   },
-
-  {"id": "stt_agy_misspell", "prompt": "Öffne eine Coding Session mit Antigravity", "expected_tool": "switch_mode", "expected_args": {"mode": "agy_session"}, "note": "STT schreibt 'agy' oft als 'Antigravity'"},
-  {"id": "stt_agy_agi", "prompt": "Mach mal eine Session mit AGI auf", "expected_tool": "switch_mode", "expected_args": {"mode": "agy_session"}, "note": "STT schreibt 'agy' als 'AGI'"},
-  {"id": "stt_claude_cloud", "prompt": "Starte eine Coding Session mit Cloud", "expected_tool": "switch_mode", "expected_args": {"mode": "claude_session"}, "note": "STT schreibt 'Claude' als 'Cloud'"},
-  {"id": "stt_codex_codecks", "prompt": "Öffne Codecks Session", "expected_tool": "switch_mode", "expected_args": {"mode": "codex_session"}, "note": "STT schreibt 'Codex' als 'Codecks'"},
-
-  {"id": "stt_clipboard_garbled", "prompt": "Was hab ich denn da kopiert", "expected_tool": "read_clipboard", "expected_args": null, "note": "Umgangssprachlich für Clipboard"},
-  {"id": "stt_time_informal", "prompt": "Sag mal die Uhrzeit", "expected_tool": "get_current_time", "expected_args": null, "note": "Informelle Zeitfrage"},
-  {"id": "stt_screenshot_informal", "prompt": "Guck mal was auf dem Screen ist", "expected_tool": "take_screenshot", "expected_args": null, "note": "Informell für Screenshot"},
-
-  {"id": "stt_path_spoken", "prompt": "Zeig mir was in home dev dexter liegt", "expected_tool": "run_command", "expected_args": null, "note": "Pfad gesprochen statt als /home/dev/dexter"},
-  {"id": "stt_url_spoken", "prompt": "Öffne mal Heise Punkt DE", "expected_tool": "open_url", "expected_args": null, "note": "URL gesprochen"},
-
-  {"id": "ambiguous_session", "prompt": "Mach mal ne Coding Session auf", "expected_tool": "ask_user", "expected_args": null, "note": "Kein Agent angegeben — sollte nachfragen welcher"},
-  {"id": "ambiguous_session_screenshot", "prompt": "Öffne eine Coding Session", "expected_tool": "ask_user", "expected_args": null, "note": "Failure case from user screenshot"},
-  {"id": "ambiguous_session_start_alternate", "prompt": "Ich will coden, mach mal ne session auf", "expected_tool": "ask_user", "expected_args": null, "note": "Alternate vague session start"},
-  {"id": "ambiguous_session_german", "prompt": "Starte Programmiersitzung", "expected_tool": "ask_user", "expected_args": null, "note": "German alternate vague session start"},
-  {"id": "ambiguous_session_short", "prompt": "Session öffnen", "expected_tool": "ask_user", "expected_args": null, "note": "Short alternate vague session start"},
-  {"id": "ambiguous_unclear", "prompt": "Kannst du das mal machen?", "expected_tool": null, "expected_args": null, "note": "Zu vage — sollte als Konversation behandelt werden oder nachfragen"},
-
-  {"id": "stt_noise_prefix", "prompt": "Ähm ja also wie spät ist es jetzt?", "expected_tool": "get_current_time", "expected_args": null, "note": "STT-typische Füllwörter"},
-  {"id": "stt_broken_sentence", "prompt": "Die, also die Zwischenablage, was steht da drin?", "expected_tool": "read_clipboard", "expected_args": null, "note": "Gebrochener Satz aus STT"}
+  {
+    "id": "stt_agy_misspell",
+    "prompt": "Öffne eine Coding Session mit Antigravity",
+    "expected_tool": "switch_mode",
+    "expected_args": {
+      "mode": "agy_session"
+    },
+    "note": "STT schreibt 'agy' oft als 'Antigravity'"
+  },
+  {
+    "id": "stt_agy_agi",
+    "prompt": "Mach mal eine Session mit AGI auf",
+    "expected_tool": "switch_mode",
+    "expected_args": {
+      "mode": "agy_session"
+    },
+    "note": "STT schreibt 'agy' als 'AGI'"
+  },
+  {
+    "id": "stt_claude_cloud",
+    "prompt": "Starte eine Coding Session mit Cloud",
+    "expected_tool": "switch_mode",
+    "expected_args": {
+      "mode": "claude_session"
+    },
+    "note": "STT schreibt 'Claude' als 'Cloud'"
+  },
+  {
+    "id": "stt_codex_codecks",
+    "prompt": "Öffne Codecks Session",
+    "expected_tool": "switch_mode",
+    "expected_args": {
+      "mode": "codex_session"
+    },
+    "note": "STT schreibt 'Codex' als 'Codecks'"
+  },
+  {
+    "id": "stt_clipboard_garbled",
+    "prompt": "Was hab ich denn da kopiert",
+    "expected_tool": "read_clipboard",
+    "expected_args": null,
+    "note": "Umgangssprachlich für Clipboard"
+  },
+  {
+    "id": "stt_time_informal",
+    "prompt": "Sag mal die Uhrzeit",
+    "expected_tool": "get_current_time",
+    "expected_args": null,
+    "note": "Informelle Zeitfrage"
+  },
+  {
+    "id": "stt_screenshot_informal",
+    "prompt": "Guck mal was auf dem Screen ist",
+    "expected_tool": "take_screenshot",
+    "expected_args": null,
+    "note": "Informell für Screenshot"
+  },
+  {
+    "id": "stt_path_spoken",
+    "prompt": "Zeig mir was in home dev dexter liegt",
+    "expected_tool": "run_command",
+    "expected_args": null,
+    "note": "Pfad gesprochen statt als /home/dev/dexter"
+  },
+  {
+    "id": "stt_url_spoken",
+    "prompt": "Öffne mal Heise Punkt DE",
+    "expected_tool": "open_url",
+    "expected_args": null,
+    "note": "URL gesprochen"
+  },
+  {
+    "id": "ambiguous_session",
+    "prompt": "Mach mal ne Coding Session auf",
+    "expected_tool": "ask_user",
+    "expected_args": null,
+    "note": "Kein Agent angegeben — sollte nachfragen welcher"
+  },
+  {
+    "id": "ambiguous_session_screenshot",
+    "prompt": "Öffne eine Coding Session",
+    "expected_tool": "ask_user",
+    "expected_args": null,
+    "note": "Failure case from user screenshot"
+  },
+  {
+    "id": "ambiguous_session_start_alternate",
+    "prompt": "Ich will coden, mach mal ne session auf",
+    "expected_tool": "ask_user",
+    "expected_args": null,
+    "note": "Alternate vague session start"
+  },
+  {
+    "id": "ambiguous_session_german",
+    "prompt": "Starte Programmiersitzung",
+    "expected_tool": "ask_user",
+    "expected_args": null,
+    "note": "German alternate vague session start"
+  },
+  {
+    "id": "ambiguous_session_short",
+    "prompt": "Session öffnen",
+    "expected_tool": "ask_user",
+    "expected_args": null,
+    "note": "Short alternate vague session start"
+  },
+  {
+    "id": "ambiguous_unclear",
+    "prompt": "Kannst du das mal machen?",
+    "expected_tool": null,
+    "expected_args": null,
+    "note": "Zu vage — sollte als Konversation behandelt werden oder nachfragen"
+  },
+  {
+    "id": "stt_noise_prefix",
+    "prompt": "Ähm ja also wie spät ist es jetzt?",
+    "expected_tool": "get_current_time",
+    "expected_args": null,
+    "note": "STT-typische Füllwörter"
+  },
+  {
+    "id": "stt_broken_sentence",
+    "prompt": "Die, also die Zwischenablage, was steht da drin?",
+    "expected_tool": "read_clipboard",
+    "expected_args": null,
+    "note": "Gebrochener Satz aus STT"
+  },
+  {
+    "id": "websearch-explicit",
+    "prompt": "Such bitte im Internet nach dem aktuellen Bitcoin-Kurs.",
+    "expected_tool": "web_search",
+    "expected_args": null
+  },
+  {
+    "id": "websearch-implicit",
+    "prompt": "Was gibt es Neues zu llama.cpp? Schau mal im Netz nach.",
+    "expected_tool": "web_search",
+    "expected_args": null
+  }
 ]

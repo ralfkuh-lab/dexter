@@ -137,6 +137,31 @@ pub async fn execute_tool(
                 }
             }
         }
+        "web_search" => {
+            let query = tool_call
+                .function
+                .arguments
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let max_results = tool_call
+                .function
+                .arguments
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5)
+                .clamp(1, 8) as usize;
+            if query.is_empty() {
+                "No search query provided.".to_string()
+            } else {
+                match tools::web_search(&config.searxng_url, &query, max_results).await {
+                    Ok(text) => text,
+                    Err(e) => format!("Failed to search the web: {}", e),
+                }
+            }
+        }
         "show_panel" => {
             let title = tool_call
                 .function

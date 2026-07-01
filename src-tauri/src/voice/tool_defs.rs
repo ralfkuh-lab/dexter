@@ -157,6 +157,32 @@ pub fn build_tools(tools_config: &ToolsConfig) -> Vec<serde_json::Value> {
         }));
     }
 
+    if tools_config.web_search {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "Search the web using the local SearXNG metasearch engine. Use for current events, facts, prices, weather-related information, and anything outside your training knowledge. Returns titles, URLs, and snippets for the top results. To read the full content of a result, follow up with web_fetch using its URL.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query, in the language most likely to yield good results."
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of search results to return.",
+                            "default": 5,
+                            "maximum": 8
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }));
+    }
+
     if tools_config.show_panel {
         tools.push(serde_json::json!({
             "type": "function",

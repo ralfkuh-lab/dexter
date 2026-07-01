@@ -62,7 +62,7 @@ Die Testszenarien (`tests/tool_calling/scenarios.json`) decken ab:
 - Clipboard → `read_clipboard`
 - Screenshot → `take_screenshot`
 - Shell-Befehle → `run_command`
-- URLs → `open_url`, `web_fetch`
+- URLs und Websuche → `open_url`, `web_search`, `web_fetch`
 - Apps → `list_running_apps`
 - Modus-Wechsel → `switch_mode`
 

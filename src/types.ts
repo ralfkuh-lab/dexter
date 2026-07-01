@@ -12,6 +12,7 @@ export interface ToolsConfig {
   list_apps: boolean;
   run_command: boolean;
   web_fetch: boolean;
+  web_search: boolean;
   show_panel: boolean;
   ask_user: boolean;
 }
@@ -35,6 +36,7 @@ export interface WindowConfig {
 
 export interface VoiceConfig {
   whisper_server_url: string;
+  searxng_url: string;
   llm_provider: string;
   llm_base_url: string;
   llm_model: string;
@@ -109,6 +111,7 @@ export const TOOL_LABEL_MAP: Record<string, string> = {
   list_running_apps: "Listing apps",
   run_command: "Running command",
   web_fetch: "Fetching web page",
+  web_search: "Searching the web",
   show_panel: "Showing panel",
   ask_user: "Asking question",
 };

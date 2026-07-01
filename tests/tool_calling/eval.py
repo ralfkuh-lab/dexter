@@ -108,6 +108,21 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "web_search",
+            "description": "Search the web via the local metasearch engine. Use for current events, facts, prices, or anything outside your training data. Returns titles, URLs and snippets of the top results.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query."},
+                    "max_results": {"type": "integer", "description": "Maximum number of results (default 5, max 8)."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "show_panel",
             "description": "Open a detail panel with Markdown content.",
             "parameters": {

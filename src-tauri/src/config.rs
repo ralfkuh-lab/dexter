@@ -26,6 +26,8 @@ pub struct ToolsConfig {
     #[serde(default = "default_true")]
     pub web_fetch: bool,
     #[serde(default = "default_true")]
+    pub web_search: bool,
+    #[serde(default = "default_true")]
     pub show_panel: bool,
     #[serde(default = "default_true")]
     pub ask_user: bool,
@@ -48,6 +50,7 @@ impl Default for ToolsConfig {
             list_apps: false,
             run_command: false, // Off by default — powerful tool
             web_fetch: false,
+            web_search: true,
             show_panel: true,
             ask_user: true,
             switch_mode: true,
@@ -69,6 +72,10 @@ fn default_llm_model() -> String {
 
 fn default_whisper_server_url() -> String {
     "http://127.0.0.1:8350".to_string()
+}
+
+fn default_searxng_url() -> String {
+    "http://127.0.0.1:8080".to_string()
 }
 
 fn default_tts_url() -> String {
@@ -275,6 +282,8 @@ impl Default for WindowConfig {
 pub struct VoiceConfig {
     #[serde(default = "default_whisper_server_url")]
     pub whisper_server_url: String,
+    #[serde(default = "default_searxng_url")]
+    pub searxng_url: String,
     #[serde(default = "default_llm_provider")]
     pub llm_provider: String,
     #[serde(default = "default_llm_base_url", alias = "ollama_url")]
@@ -313,6 +322,7 @@ impl Default for VoiceConfig {
     fn default() -> Self {
         Self {
             whisper_server_url: default_whisper_server_url(),
+            searxng_url: default_searxng_url(),
             llm_provider: default_llm_provider(),
             llm_base_url: default_llm_base_url(),
             llm_model: default_llm_model(),
