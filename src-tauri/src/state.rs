@@ -1,7 +1,7 @@
 //! Geteilter In-Memory-Zustand und Event-Typen für die UI.
 
 use crate::voice;
-use crate::{rag, sandbox, VoiceConfig};
+use crate::{sandbox, VoiceConfig};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -134,7 +134,6 @@ pub struct AppState {
     pub processing: Mutex<ProcessingState>,
     pub automation_events: Mutex<Vec<AutomationEvent>>,
     pub console_errors: Mutex<Vec<ConsoleError>>,
-    pub rag_store: rag::RagStore,
     pub audit_log: Mutex<sandbox::AuditLog>,
     /// Audio samples collected by the recording thread.
     pub recorded_samples: Mutex<Vec<f32>>,

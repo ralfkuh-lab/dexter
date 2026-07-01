@@ -20,7 +20,6 @@ mod dictation;
 mod hands_free;
 mod panel_manager;
 mod pipeline;
-mod rag;
 mod sandbox;
 mod state;
 mod tool_executor;
@@ -48,7 +47,6 @@ pub fn run() {
             processing: Mutex::new(state::ProcessingState::default()),
             automation_events: Mutex::new(Vec::new()),
             console_errors: Mutex::new(Vec::new()),
-            rag_store: rag::RagStore::new().expect("Failed to initialize RAG store"),
             audit_log: Mutex::new(sandbox::AuditLog::new()),
             recorded_samples: Mutex::new(Vec::new()),
             recording_sample_rate: Mutex::new(44100),
@@ -251,10 +249,7 @@ pub fn run() {
             commands::clear_messages,
             commands::show_window,
             commands::hide_window,
-            commands::ingest_text,
-            commands::ingest_file,
-            commands::list_knowledge_sources,
-            commands::delete_knowledge_source,
+            commands::list_vault_notes,
             commands::start_recording,
             commands::stop_recording_and_process,
             commands::set_speaking,

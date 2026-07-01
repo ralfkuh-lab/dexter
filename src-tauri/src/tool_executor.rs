@@ -13,10 +13,8 @@ pub async fn execute_tool(
     config: &VoiceConfig,
     tool_call: &voice::OllamaToolCall,
 ) -> String {
-    let rag_store = &app.state::<AppState>().rag_store;
-
     match tool_call.function.name.as_str() {
-        "search_knowledge" => {
+        "search_notes" => {
             let query = tool_call
                 .function
                 .arguments
@@ -24,29 +22,19 @@ pub async fn execute_tool(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-
-            let results = rag_store
-                .search(&query, &config.llm_base_url, &config.embed_model, 5)
-                .await
-                .unwrap_or_default();
-
-            if results.is_empty() {
-                "No relevant results found in the knowledge base.".to_string()
-            } else {
-                results
-                    .iter()
-                    .enumerate()
-                    .map(|(i, r)| {
-                        format!(
-                            "[{}] (source: {}, relevance: {:.2})\n{}",
-                            i + 1,
-                            r.source,
-                            r.score,
-                            r.text
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n\n")
+            tools::search_notes(&config.vault_path, &query)
+        }
+        "read_note" => {
+            let path = tool_call
+                .function
+                .arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            match tools::read_note(&config.vault_path, &path) {
+                Ok(text) => text,
+                Err(e) => e,
             }
         }
         "take_screenshot" => {

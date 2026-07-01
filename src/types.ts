@@ -4,7 +4,7 @@ export interface ProcessingState {
 }
 
 export interface ToolsConfig {
-  search_knowledge: boolean;
+  search_notes: boolean;
   screenshot: boolean;
   read_clipboard: boolean;
   open_url: boolean;
@@ -38,7 +38,7 @@ export interface VoiceConfig {
   llm_provider: string;
   llm_base_url: string;
   llm_model: string;
-  embed_model: string;
+  vault_path: string;
   vision_model: string;
   tts_url: string;
   tts_voice: string;
@@ -101,7 +101,8 @@ export type SettingsTab = "config" | "prompt" | "tools" | "knowledge";
 
 export const TOOL_LABEL_MAP: Record<string, string> = {
   take_screenshot: "Taking screenshot",
-  search_knowledge: "Searching knowledge",
+  search_notes: "Searching notes",
+  read_note: "Reading note",
   read_clipboard: "Reading clipboard",
   open_url: "Opening URL",
   get_current_time: "Checking time",

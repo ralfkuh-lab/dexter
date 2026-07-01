@@ -1,6 +1,155 @@
 #[cfg(target_os = "macos")]
 use base64::{engine::general_purpose::STANDARD, Engine};
+use std::path::Path;
 use std::process::Command;
+
+// ── Markdown-Vault (Wissensbasis) ──
+
+/// Expand a leading `~` to the user's home directory.
+fn expand_home(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix('~') {
+        if let Some(home) = dirs::home_dir() {
+            return format!("{}{}", home.to_string_lossy(), rest);
+        }
+    }
+    path.to_string()
+}
+
+/// List all Markdown files in the vault as vault-relative paths (sorted).
+pub fn list_vault_notes(vault_path: &str) -> Vec<String> {
+    if vault_path.trim().is_empty() {
+        return Vec::new();
+    }
+    let root = expand_home(vault_path);
+    let root_path = Path::new(&root);
+    let mut notes: Vec<String> = walkdir::WalkDir::new(root_path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext.eq_ignore_ascii_case("md"))
+                .unwrap_or(false)
+        })
+        .filter_map(|e| {
+            e.path()
+                .strip_prefix(root_path)
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .collect();
+    notes.sort();
+    notes
+}
+
+/// Search the vault's Markdown files for a query (case-insensitive, literal).
+/// Returns matches as "relative/path.md:LINE: <trimmed line>" plus context.
+pub fn search_notes(vault_path: &str, query: &str) -> String {
+    if vault_path.trim().is_empty() {
+        return "Kein Vault-Ordner konfiguriert. Bitte in den Einstellungen unter \"Knowledge\" einen Ordner festlegen.".to_string();
+    }
+    let query = query.trim();
+    if query.is_empty() {
+        return "Leere Suchanfrage.".to_string();
+    }
+    let root = expand_home(vault_path);
+    let root_path = Path::new(&root);
+    if !root_path.is_dir() {
+        return format!("Vault-Ordner nicht gefunden: {}", root);
+    }
+
+    let re = match regex::RegexBuilder::new(&regex::escape(query))
+        .case_insensitive(true)
+        .build()
+    {
+        Ok(re) => re,
+        Err(_) => return "Ungültige Suchanfrage.".to_string(),
+    };
+
+    const MAX_MATCHES: usize = 40;
+    let mut out: Vec<String> = Vec::new();
+    let mut total = 0usize;
+    let mut truncated = false;
+
+    for entry in walkdir::WalkDir::new(root_path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext.eq_ignore_ascii_case("md"))
+                .unwrap_or(false)
+        })
+    {
+        let rel = entry
+            .path()
+            .strip_prefix(root_path)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .to_string();
+        let Ok(content) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        for (idx, line) in content.lines().enumerate() {
+            if re.is_match(line) {
+                if total >= MAX_MATCHES {
+                    truncated = true;
+                    break;
+                }
+                let trimmed = line.trim();
+                let snippet: String = trimmed.chars().take(200).collect();
+                out.push(format!("{}:{}: {}", rel, idx + 1, snippet));
+                total += 1;
+            }
+        }
+        if truncated {
+            break;
+        }
+    }
+
+    if out.is_empty() {
+        return format!("Keine Treffer für \"{}\" im Vault.", query);
+    }
+    let mut result = format!("Treffer für \"{}\":\n\n{}", query, out.join("\n"));
+    if truncated {
+        result.push_str(&format!(
+            "\n\n(Auf {} Treffer begrenzt — Anfrage ggf. präzisieren.)",
+            MAX_MATCHES
+        ));
+    }
+    result.push_str("\n\nMit read_note und dem relativen Pfad kannst du eine Datei vollständig lesen.");
+    result
+}
+
+/// Read a single note by vault-relative path. Enforces that the resolved path
+/// stays inside the vault (no traversal / symlink escape).
+pub fn read_note(vault_path: &str, rel_path: &str) -> Result<String, String> {
+    if vault_path.trim().is_empty() {
+        return Err("Kein Vault-Ordner konfiguriert.".to_string());
+    }
+    let root = expand_home(vault_path);
+    let root_canon = std::fs::canonicalize(&root)
+        .map_err(|e| format!("Vault-Ordner nicht lesbar: {}", e))?;
+    let target = Path::new(&root).join(rel_path);
+    let target_canon = std::fs::canonicalize(&target)
+        .map_err(|e| format!("Datei nicht gefunden: {}", e))?;
+    if !target_canon.starts_with(&root_canon) {
+        return Err("Zugriff verweigert: Pfad liegt außerhalb des Vault-Ordners.".to_string());
+    }
+    let text = std::fs::read_to_string(&target_canon)
+        .map_err(|e| format!("Lesen fehlgeschlagen: {}", e))?;
+    const MAX_CHARS: usize = 8000;
+    if text.chars().count() > MAX_CHARS {
+        let truncated: String = text.chars().take(MAX_CHARS).collect();
+        Ok(format!("{}\n\n… (gekürzt)", truncated))
+    } else {
+        Ok(text)
+    }
+}
 
 /// Capture the screen on macOS using screencapture, resize for vision model.
 /// `monitor`: None = active display (with mouse cursor), Some(n) = display index (1-based).

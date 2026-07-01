@@ -45,23 +45,20 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 - [ ] **macOS-Pfade weiter pflegen, aber ungetestet.** Multi-Platform bleibt
   Ziel, aktive Entwicklung ist Linux. macOS-`cfg`-Branches bewusst behalten.
 
-- [ ] **Verbleibende Ollama-Reste entfernen.** Der Ollama-Chat-Client wurde
-  entfernt (läuft über OpenAI-kompatiblen Pfad / llama.cpp). Es hängen noch zwei
-  Ollama-spezifische Stellen im Code: (1) RAG-Embeddings in `rag.rs` rufen fix
-  `/api/embed` (Ollama-Format) statt `/v1/embeddings` — greift beim Umstieg auf
-  den Markdown-Vault ohnehin nicht mehr; falls RAG vorher reaktiviert wird, auf
-  OpenAI-kompatibel umstellen. (2) `tools.rs::describe_screenshot` hat einen
-  eigenen `provider == "ollama"`-Vision-Pfad (`/api/chat`) — nur aktiv bei
-  Provider „ollama", kann bleiben oder später raus.
+- [ ] **Letzter Ollama-Rest: Vision-Pfad.** Chat-Client und RAG-Embeddings sind
+  raus. Übrig ist nur `tools.rs::describe_screenshot` mit eigenem
+  `provider == "ollama"`-Vision-Pfad (`/api/chat`) — nur aktiv bei Provider
+  „ollama", kann bleiben oder später raus.
 
-## Knowledge-System: Markdown-Vault statt RAG-Embeddings
+## Knowledge-Vault: mögliche Ausbauten (nicht dringend)
 
-- [ ] **Markdown-Vault als Wissensbasis.** Konfigurierbarer Ordner mit Markdown-
-  Dateien (Obsidian-kompatibel). Neues Tool `search_notes` sucht per grep/find
-  im Vault, liest relevante Dateien und gibt sie dem LLM als Kontext. Keine
-  Embeddings, kein Ollama-Dependency, kein SQLite-Vektorstore. Verlinkungen
-  (`[[topic]]`) geben dem LLM Struktur. Dateien sind auch außerhalb von Dexter
-  editierbar. Ersetzt perspektivisch das bestehende RAG-System.
+Basis steht: Markdown-Vault mit `search_notes`/`read_note`, Vault-Pfad in den
+Settings (Knowledge-Tab). Denkbare Erweiterungen:
+
+- [ ] **`[[wikilink]]`-Auflösung.** search_notes/read_note könnten verlinkte
+  Notizen mit auflösen, damit das LLM Struktur folgen kann.
+- [ ] **Synonym-/Mehrfachsuche.** Bei 0 Treffern das LLM zu alternativen
+  Suchbegriffen anregen (Prompt-Hinweis), um die grep-Grenze abzufedern.
 
 ## Features / Ideen (nicht dringend)
 

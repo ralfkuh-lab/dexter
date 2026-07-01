@@ -15,21 +15,38 @@ pub fn build_tools(tools_config: &ToolsConfig) -> Vec<serde_json::Value> {
 
     let mut tools = Vec::new();
 
-    if tools_config.search_knowledge {
+    if tools_config.search_notes {
         tools.push(serde_json::json!({
             "type": "function",
             "function": {
-                "name": "search_knowledge",
-                "description": "Search the user's local knowledge base for relevant information. Use this when the user asks about something that might be in their stored documents or notes.",
+                "name": "search_notes",
+                "description": "Search the user's local Markdown notes (knowledge vault) for a keyword or phrase. Returns matching file paths with line numbers and snippets. Use when the user asks about something they may have written down. Follow up with read_note to read a full file.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "The search query to find relevant knowledge"
+                            "description": "The keyword or phrase to search for (case-insensitive, literal match)."
                         }
                     },
                     "required": ["query"]
+                }
+            }
+        }));
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "read_note",
+                "description": "Read the full contents of one note from the user's Markdown vault. Pass the vault-relative path exactly as returned by search_notes.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Vault-relative path of the note to read, e.g. 'projects/dexter.md'."
+                        }
+                    },
+                    "required": ["path"]
                 }
             }
         }));

@@ -171,14 +171,28 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "search_knowledge",
-            "description": "Search the local knowledge base.",
+            "name": "search_notes",
+            "description": "Search the local Markdown notes vault.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_note",
+            "description": "Read one note from the local Markdown notes vault.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                },
+                "required": ["path"],
             },
         },
     },

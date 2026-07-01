@@ -40,15 +40,13 @@ export function Settings() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 pt-5 pb-3.5" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
         <h2 className="text-base font-semibold text-white/85 tracking-tight">Settings</h2>
-        {tab !== "knowledge" && (
-          <button
-            onClick={save}
-            className="px-4 py-1.5 rounded-md text-[12px] font-medium border-none cursor-pointer bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-150"
-            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-          >
-            {saved ? "Saved!" : "Save"}
-          </button>
-        )}
+        <button
+          onClick={save}
+          className="px-4 py-1.5 rounded-md text-[12px] font-medium border-none cursor-pointer bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-150"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        >
+          {saved ? "Saved!" : "Save"}
+        </button>
       </div>
 
       {/* Tab bar */}
@@ -73,7 +71,7 @@ export function Settings() {
         {tab === "config" && <ConfigTab config={config} setConfig={setConfig} />}
         {tab === "prompt" && <PromptTab config={config} setConfig={setConfig} corePrompt={corePrompt} systemInfo={systemInfo} />}
         {tab === "tools" && <ToolsTab config={config} setConfig={setConfig} />}
-        {tab === "knowledge" && <KnowledgeTab />}
+        {tab === "knowledge" && <KnowledgeTab config={config} setConfig={setConfig} />}
       </div>
     </div>
   );

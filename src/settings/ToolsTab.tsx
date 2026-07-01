@@ -4,7 +4,7 @@ import { FieldGroup, Field, Input, Toggle } from "../components/ui";
 const TOOL_DEFINITIONS: { key: keyof ToolsConfig; name: string; desc: string; icon: string }[] = [
   { key: "screenshot", name: "Screenshot", desc: "Capture and describe what's on your screen", icon: "📸" },
   { key: "read_clipboard", name: "Read Clipboard", desc: "Read current text from your clipboard", icon: "📋" },
-  { key: "search_knowledge", name: "Knowledge Search", desc: "Search your local knowledge base for context", icon: "🔍" },
+  { key: "search_notes", name: "Notes / Vault", desc: "Durchsucht deine Markdown-Notizen (search_notes + read_note)", icon: "🔍" },
   { key: "open_url", name: "Open URL", desc: "Open websites in your default browser", icon: "🌐" },
   { key: "get_current_time", name: "Current Time", desc: "Get the current date, time, and day of week", icon: "🕐" },
   { key: "list_apps", name: "Running Apps", desc: "List currently running applications", icon: "🖥" },
@@ -103,7 +103,7 @@ export function ToolsTab({
             />
           </Field>
 
-          <Field label="Readable Paths (Datei-Ingest & Docker-Mounts)">
+          <Field label="Readable Paths (Docker-Mounts)">
             <textarea
               value={config.sandbox.readable_paths.join("\n")}
               onChange={(e) => setSandbox({ readable_paths: e.target.value.split("\n").filter(Boolean) })}
@@ -112,9 +112,9 @@ export function ToolsTab({
               className="w-full bg-white/[0.05] border border-white/10 text-white/90 px-3 py-2.5 rounded-lg text-[13px] font-inherit outline-none resize-y transition-all duration-200 focus:border-blue-500/50 focus:bg-white/[0.07] placeholder:text-white/20"
             />
             <p className="text-[11px] text-white/25 mt-1 leading-relaxed">
-              Nur Dateien unter diesen Pfaden dürfen in die Wissensbasis
-              eingelesen werden. Im Docker-Modus werden sie zusätzlich read-only
-              in den Container gemountet. Ein Pfad pro Zeile, `~` = Home.
+              Im Docker-Modus werden diese Pfade read-only in den Container
+              gemountet, damit Shell-Kommandos sie lesen können. Ein Pfad pro
+              Zeile, `~` = Home.
             </p>
           </Field>
 

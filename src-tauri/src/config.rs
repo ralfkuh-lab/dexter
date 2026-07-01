@@ -9,8 +9,8 @@ use std::sync::OnceLock;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ToolsConfig {
-    #[serde(default = "default_true")]
-    pub search_knowledge: bool,
+    #[serde(default = "default_true", alias = "search_knowledge")]
+    pub search_notes: bool,
     #[serde(default = "default_true")]
     pub screenshot: bool,
     #[serde(default = "default_true")]
@@ -40,7 +40,7 @@ fn default_true() -> bool {
 impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
-            search_knowledge: false,
+            search_notes: false,
             screenshot: false,
             read_clipboard: false,
             open_url: false,
@@ -282,7 +282,7 @@ pub struct VoiceConfig {
     #[serde(default = "default_llm_model", alias = "ollama_model")]
     pub llm_model: String,
     #[serde(default)]
-    pub embed_model: String,
+    pub vault_path: String,
     #[serde(default)]
     pub vision_model: String,
     #[serde(default = "default_tts_url", alias = "chatterbox_url")]
@@ -316,7 +316,7 @@ impl Default for VoiceConfig {
             llm_provider: default_llm_provider(),
             llm_base_url: default_llm_base_url(),
             llm_model: default_llm_model(),
-            embed_model: String::new(),
+            vault_path: String::new(),
             vision_model: String::new(),
             tts_url: default_tts_url(),
             tts_voice: default_tts_voice(),

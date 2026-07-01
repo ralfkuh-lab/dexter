@@ -6,9 +6,10 @@ Repo-spezifische Konventionen für Claude. Wird automatisch in jede Session gela
 
 Dexter — Desktop-Sprachassistent als Tauri-App (Rust + React + TypeScript). Die App
 ist ein **Client**: sie nimmt Audio auf, schickt es per HTTP an einen Whisper-STT-
-Server, schickt den Text an einen Ollama-/llama.cpp-LLM-Server, streamt die Antwort
-satzweise an einen Piper-TTS-Server und spielt die WAV-Chunks ab. Plus RAG (lokales
-SQLite) und Tools (Screenshot, Clipboard, Shell-Sandbox, Web-Fetch, …).
+Server, schickt den Text an einen (OpenAI-kompatiblen) llama.cpp-LLM-Server, streamt
+die Antwort satzweise an einen Piper-TTS-Server und spielt die WAV-Chunks ab. Plus
+Markdown-Vault-Wissensbasis (grep-basiert, `search_notes`/`read_note`) und Tools
+(Screenshot, Clipboard, Shell-Sandbox, Web-Fetch, …).
 
 **Wichtig:** Dexter soll beim Coding **nicht** selbst programmieren und nicht das
 lokale Gemma-Modell als Coding-Agent verwenden. Dexter ist Voice-Orchestrator und
@@ -66,9 +67,9 @@ src-tauri/src/
   state.rs            AppState, AppMode, Dialog/Panel/Processing State
   config.rs           ToolsConfig, VoiceConfig (System-Prompt wird aus system-prompt.md geladen)
   voice.rs            HTTP-STT, LLM-Streaming (Ollama+OpenAI), TTS, Tool-Defs
-  tools.rs            Tool-Implementierungen (cfg-getrennt pro OS)
+  tools.rs            Tool-Implementierungen (cfg-getrennt pro OS) inkl.
+                      Markdown-Vault (search_notes/read_note)
   sandbox.rs          Shell-Sandbox für run_command
-  rag.rs              Lokale RAG (SQLite + Ollama-Embeddings)
   backend.rs          LLM-Warmup, PTT-Shortcut, ctx_max Discovery
   window.rs           Fenster-Utilities
 ```
