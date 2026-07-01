@@ -990,7 +990,7 @@ async fn run_agent_session(
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
-    agent_session::send_keys(&session.name, prompt).await?;
+    agent_session::send_keys(&session.pane_id, prompt).await?;
 
     record_automation_event(
         app,
@@ -1023,7 +1023,7 @@ async fn run_agent_enter(
     let session = agent_session::ensure_session(mode, &working_dir).await?;
 
     agent_session::open_terminal(&session.name).await?;
-    agent_session::send_enter(&session.name).await?;
+    agent_session::send_enter(&session.pane_id).await?;
 
     record_automation_event(app, "agent.enter", mode.to_string());
 

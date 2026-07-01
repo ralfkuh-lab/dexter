@@ -270,7 +270,7 @@ async fn send_to_agent(
     if session.created {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-    agent_session::send_keys(&session.name, prompt).await?;
+    agent_session::send_keys(&session.pane_id, prompt).await?;
 
     record_automation_event(
         app,
