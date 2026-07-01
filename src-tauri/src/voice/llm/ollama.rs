@@ -1,12 +1,13 @@
 //! Ollama-native `/api/chat` Streaming-Client.
 
 use super::{
-    find_sentence_end, parse_xml_tool_calls, OllamaToolCall, OllamaToolCallOut, StreamResult,
-    ToolCallSource,
+    find_sentence_end, parse_xml_tool_calls, OllamaToolCall, OllamaToolCallOut,
+    OllamaToolFunction, StreamResult, ToolCallSource,
 };
 use crate::voice::{emit_llm_stats, trim_base_url, LlmStats};
 use crate::{ChatMessage, VoiceConfig};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
@@ -25,6 +26,8 @@ struct OllamaChatRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -55,8 +58,13 @@ pub(super) async fn chat_streaming(
     config: &VoiceConfig,
     messages: &[ChatMessage],
     tools: &[serde_json::Value],
+    forced_tool: Option<&str>,
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(name) = forced_tool {
+        return chat_forced_tool(app, config, messages, tools, name).await;
+    }
+
     let req_start = Instant::now();
     let mut first_token_at: Option<Instant> = None;
     let mut stats = LlmStats::default();
@@ -87,6 +95,7 @@ pub(super) async fn chat_streaming(
         } else {
             Some(tools.to_vec())
         },
+        format: None,
     };
 
     let resp = client
@@ -280,6 +289,86 @@ pub(super) async fn chat_streaming(
     }
 
     Ok(StreamResult::Content(full_response.trim().to_string()))
+}
+
+/// Erzwingt bei Ollama einen bestimmten Tool-Aufruf über strukturierte Ausgabe.
+/// Ollama kennt kein `tool_choice`; stattdessen wird das JSON-Schema der
+/// Tool-Parameter als `format` gesetzt und die JSON-Antwort in einen
+/// synthetischen Tool-Call umgewandelt.
+async fn chat_forced_tool(
+    app: &tauri::AppHandle,
+    config: &VoiceConfig,
+    messages: &[ChatMessage],
+    tools: &[serde_json::Value],
+    forced_name: &str,
+) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
+    // JSON-Schema (parameters) des erzwungenen Tools aus dem tools-Array holen.
+    let schema = tools.iter().find_map(|t| {
+        let f = t.get("function")?;
+        if f.get("name")?.as_str()? == forced_name {
+            f.get("parameters").cloned()
+        } else {
+            None
+        }
+    });
+
+    let mut ollama_messages = vec![OllamaMessage {
+        role: "system".to_string(),
+        content: config.effective_system_prompt(),
+        tool_calls: None,
+    }];
+    for msg in messages {
+        ollama_messages.push(OllamaMessage {
+            role: msg.role.clone(),
+            content: msg.content.clone(),
+            tool_calls: msg.tool_calls.clone(),
+        });
+    }
+
+    let request = OllamaChatRequest {
+        model: config.llm_model.clone(),
+        messages: ollama_messages,
+        stream: false,
+        tools: None,
+        format: schema,
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+    let resp = client
+        .post(format!("{}/api/chat", trim_base_url(&config.llm_base_url)))
+        .json(&request)
+        .send()
+        .await?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Ollama API error {}: {}", status, body).into());
+    }
+
+    // stream:false → eine JSON-Zeile mit { message: { content: "<json>" } }
+    let body = resp.text().await?;
+    let chunk: OllamaStreamChunk = serde_json::from_str(body.trim())?;
+    let content = chunk.message.map(|m| m.content).unwrap_or_default();
+
+    // Der content ist ein JSON-Objekt gemäß Tool-Schema → als arguments parsen.
+    match serde_json::from_str::<HashMap<String, serde_json::Value>>(content.trim()) {
+        Ok(arguments) => Ok(StreamResult::ToolCalls {
+            calls: vec![OllamaToolCall {
+                id: None,
+                function: OllamaToolFunction {
+                    name: forced_name.to_string(),
+                    arguments,
+                },
+            }],
+            spoken_preamble: String::new(),
+            source: ToolCallSource::Native,
+        }),
+        // Falls das Modell doch kein sauberes JSON liefert: Roh-Content
+        // zurückgeben, der Aufrufer hat einen Content-Fallback.
+        Err(_) => Ok(StreamResult::Content(content.trim().to_string())),
+    }
 }
 
 pub(super) async fn warmup(

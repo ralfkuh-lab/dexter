@@ -88,7 +88,7 @@ pub async fn chat_streaming(
     sentence_tx: &mpsc::Sender<String>,
 ) -> Result<StreamResult, Box<dyn std::error::Error + Send + Sync>> {
     if config.llm_provider == "ollama" {
-        return ollama::chat_streaming(app, config, messages, tools, sentence_tx).await;
+        return ollama::chat_streaming(app, config, messages, tools, forced_tool, sentence_tx).await;
     }
     openai::chat_streaming(app, config, messages, tools, forced_tool, sentence_tx).await
 }
