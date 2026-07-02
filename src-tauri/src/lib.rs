@@ -237,6 +237,8 @@ pub fn run() {
             commands::clear_agent_draft,
             commands::get_app_mode,
             commands::get_config,
+            commands::get_config_path,
+            commands::check_endpoint_health,
             commands::list_input_devices,
             commands::get_core_system_prompt,
             commands::get_ctx_max,

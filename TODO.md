@@ -40,5 +40,3 @@ Settings (Knowledge-Tab). Denkbare Erweiterungen:
   Notizen mit auflösen, damit das LLM Struktur folgen kann.
 
 ## Features / Ideen (nicht dringend)
-
-- [ ] **Diagnose-Anzeige in Settings:** Config-Pfad und Endpunkt-Health live.

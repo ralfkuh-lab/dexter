@@ -369,7 +369,7 @@ impl VoiceConfig {
         prompt
     }
 
-    fn config_path() -> std::path::PathBuf {
+    pub fn config_path() -> std::path::PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
             .join("voice-assistant")

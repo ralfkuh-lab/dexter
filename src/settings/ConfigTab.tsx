@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { VoiceConfig } from "../types";
 import { FieldGroup, Field, Input, Toggle } from "../components/ui";
 import { ModelSelect } from "../components/ModelSelect";
+
+interface EndpointHealth {
+  name: string;
+  url: string;
+  ok: boolean;
+  detail: string;
+}
 
 export function ConfigTab({
   config,
@@ -12,15 +19,45 @@ export function ConfigTab({
   setConfig: (c: VoiceConfig) => void;
 }) {
   const [inputDevices, setInputDevices] = useState<string[]>([]);
+  const [configPath, setConfigPath] = useState("Wird geladen…");
+  const [endpointHealth, setEndpointHealth] = useState<EndpointHealth[] | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+
+  const refreshHealth = useCallback(async () => {
+    setEndpointHealth(null);
+    setHealthError(null);
+    try {
+      setEndpointHealth(await invoke<EndpointHealth[]>("check_endpoint_health"));
+    } catch (error) {
+      setHealthError(String(error));
+    }
+  }, []);
 
   useEffect(() => {
     invoke<string[]>("list_input_devices")
       .then(setInputDevices)
       .catch(() => setInputDevices([]));
-  }, []);
+    invoke<string>("get_config_path")
+      .then(setConfigPath)
+      .catch((error) => setConfigPath(`Nicht verfügbar: ${String(error)}`));
+    void refreshHealth();
+  }, [refreshHealth]);
 
   const unavailableInputDevice =
     config.input_device !== "" && !inputDevices.includes(config.input_device);
+  const healthLoading = endpointHealth === null && healthError === null;
+  const displayedHealth =
+    endpointHealth ??
+    [
+      { name: "STT", url: config.whisper_server_url },
+      { name: "LLM", url: config.llm_base_url },
+      { name: "TTS", url: config.tts_url },
+    ].map(({ name, url }) => ({
+      name,
+      url,
+      ok: false,
+      detail: healthError ?? "Wird geprüft…",
+    }));
 
   return (
     <div className="flex flex-col gap-5 p-5 px-6">
@@ -143,6 +180,71 @@ export function ConfigTab({
         <Field label="Stats bar (ctx, TTFT, tok/s)">
           <Toggle on={config.show_stats} onToggle={() => setConfig({ ...config, show_stats: !config.show_stats })} />
         </Field>
+      </FieldGroup>
+
+      <FieldGroup title="Diagnose">
+        <Field label="Config-Datei">
+          <input
+            readOnly
+            value={configPath}
+            title={configPath}
+            className="w-full bg-white/[0.03] border border-white/[0.07] text-white/55 px-3 py-2.5 rounded-lg text-[12px] font-mono outline-none"
+          />
+        </Field>
+
+        <div className="flex flex-col divide-y divide-white/[0.06]">
+          {displayedHealth.map((endpoint) => (
+            <div
+              key={endpoint.name}
+              className="grid grid-cols-[auto_2.5rem_minmax(0,1fr)] gap-2.5 items-start py-2.5 first:pt-0 last:pb-0"
+            >
+              <span
+                aria-label={
+                  healthLoading
+                    ? "Wird geprüft"
+                    : endpoint.ok
+                      ? "Erreichbar"
+                      : "Nicht erreichbar"
+                }
+                className={`w-2 h-2 mt-1 rounded-full ${
+                  healthLoading
+                    ? "bg-white/25"
+                    : endpoint.ok
+                      ? "bg-emerald-400"
+                      : "bg-red-400"
+                }`}
+              />
+              <span className="text-[12px] font-medium text-white/65">
+                {endpoint.name}
+              </span>
+              <div className="min-w-0">
+                <div className="text-[11px] font-mono text-white/55 break-all">
+                  {endpoint.url}
+                </div>
+                <div
+                  className={`text-[10px] mt-0.5 break-words ${
+                    healthLoading
+                      ? "text-white/30"
+                      : endpoint.ok
+                        ? "text-emerald-400/75"
+                        : "text-red-400/75"
+                  }`}
+                >
+                  {endpoint.detail}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void refreshHealth()}
+          disabled={healthLoading}
+          className="self-start px-3 py-1.5 rounded-md text-[12px] font-medium border border-white/10 bg-white/[0.05] text-white/60 hover:text-white/85 hover:border-white/20 disabled:opacity-40 disabled:cursor-default transition-colors duration-150"
+        >
+          Aktualisieren
+        </button>
       </FieldGroup>
     </div>
   );

@@ -18,6 +18,83 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tokio_util::sync::CancellationToken;
 
+#[derive(serde::Serialize)]
+pub struct EndpointHealth {
+    name: String,
+    url: String,
+    ok: bool,
+    detail: String,
+}
+
+impl EndpointHealth {
+    fn from_response(
+        name: &str,
+        url: String,
+        response: Result<reqwest::Response, reqwest::Error>,
+    ) -> Self {
+        match response {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                Self {
+                    name: name.to_string(),
+                    url,
+                    ok: status < 500,
+                    detail: format!("HTTP {status}"),
+                }
+            }
+            Err(error) => Self {
+                name: name.to_string(),
+                url,
+                ok: false,
+                detail: error.to_string(),
+            },
+        }
+    }
+
+    fn error(name: &str, url: String, detail: String) -> Self {
+        Self {
+            name: name.to_string(),
+            url,
+            ok: false,
+            detail,
+        }
+    }
+}
+
+const ENDPOINT_HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+async fn check_http_endpoint(
+    client: &reqwest::Client,
+    name: &str,
+    configured_url: String,
+    request_url: String,
+) -> EndpointHealth {
+    let response = client
+        .get(request_url)
+        .timeout(ENDPOINT_HEALTH_TIMEOUT)
+        .send()
+        .await;
+    EndpointHealth::from_response(name, configured_url, response)
+}
+
+async fn check_stt_endpoint(client: &reqwest::Client, configured_url: String) -> EndpointHealth {
+    let base = configured_url.trim_end_matches('/');
+    let health_response = client
+        .get(format!("{base}/health"))
+        .timeout(ENDPOINT_HEALTH_TIMEOUT)
+        .send()
+        .await;
+
+    if matches!(
+        &health_response,
+        Ok(response) if response.status() == reqwest::StatusCode::NOT_FOUND
+    ) {
+        return check_http_endpoint(client, "STT", configured_url.clone(), configured_url).await;
+    }
+
+    EndpointHealth::from_response("STT", configured_url, health_response)
+}
+
 #[tauri::command]
 pub fn toggle_dictation(app: tauri::AppHandle) {
     if crate::dictation::is_active(&app) {
@@ -88,6 +165,48 @@ pub fn get_app_mode(state: tauri::State<AppState>) -> String {
 #[tauri::command]
 pub fn get_config(state: tauri::State<AppState>) -> VoiceConfig {
     state.config.lock().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn get_config_path() -> String {
+    VoiceConfig::config_path().to_string_lossy().into_owned()
+}
+
+#[tauri::command]
+pub async fn check_endpoint_health(app: tauri::AppHandle) -> Vec<EndpointHealth> {
+    let (stt_url, llm_url, tts_url) = {
+        let state = app.state::<AppState>();
+        let config = state.config.lock().unwrap();
+        (
+            config.whisper_server_url.clone(),
+            config.llm_base_url.clone(),
+            config.tts_url.clone(),
+        )
+    };
+
+    let client = match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            let detail = error.to_string();
+            return vec![
+                EndpointHealth::error("STT", stt_url, detail.clone()),
+                EndpointHealth::error("LLM", llm_url, detail.clone()),
+                EndpointHealth::error("TTS", tts_url, detail),
+            ];
+        }
+    };
+
+    let llm_request_url = format!("{}/v1/models", llm_url.trim_end_matches('/'));
+    let (stt, llm, tts) = tokio::join!(
+        check_stt_endpoint(&client, stt_url),
+        check_http_endpoint(&client, "LLM", llm_url, llm_request_url),
+        check_http_endpoint(&client, "TTS", tts_url.clone(), tts_url),
+    );
+
+    vec![stt, llm, tts]
 }
 
 #[tauri::command]
