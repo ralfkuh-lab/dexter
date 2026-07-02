@@ -20,9 +20,6 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 - [ ] **Wiederverbindung nach Neustart.** Bestehende dexter-* tmux-Sessions
   beim App-Start erkennen und Modus wiederherstellen.
 
-- [ ] **Terminal-Emulator konfigurierbar.** Aktuell hardcoded gnome-terminal,
-  sollte über Config wählbar sein (kitty, alacritty, wezterm etc.).
-
 ## Visible Workspace (Phase 4 Ausbau)
 
 - [ ] **Rechtes Seitenpanel.** Persistentes Fenster neben dem Orb mit

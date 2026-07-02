@@ -265,8 +265,15 @@ async fn send_to_agent(
 
     let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let session = agent_session::ensure_session(mode, &working_dir).await?;
+    let terminal_command = app
+        .state::<AppState>()
+        .config
+        .lock()
+        .unwrap()
+        .terminal_command
+        .clone();
 
-    agent_session::open_terminal(&session.name).await?;
+    agent_session::open_terminal(&session.name, &terminal_command).await?;
     if session.created {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }

@@ -39,6 +39,7 @@ export interface VoiceConfig {
   searxng_url: string;
   llm_provider: string;
   llm_base_url: string;
+  terminal_command: string;
   llm_model: string;
   vault_path: string;
   vision_model: string;

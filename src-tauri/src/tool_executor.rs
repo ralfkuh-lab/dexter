@@ -295,7 +295,9 @@ pub async fn execute_tool(
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                 match agent_session::ensure_session(&mode, &working_dir).await {
                     Ok(session) => {
-                        let _ = agent_session::open_terminal(&session.name).await;
+                        let _ =
+                            agent_session::open_terminal(&session.name, &config.terminal_command)
+                                .await;
                         format!("Modus auf {} gewechselt. Terminal geöffnet.", label)
                     }
                     Err(e) => format!(

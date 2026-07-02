@@ -66,6 +66,10 @@ fn default_llm_base_url() -> String {
     "http://127.0.0.1:8081".to_string()
 }
 
+fn default_terminal_command() -> String {
+    "gnome-terminal".to_string()
+}
+
 fn default_llm_model() -> String {
     "gemma".to_string()
 }
@@ -288,6 +292,8 @@ pub struct VoiceConfig {
     pub llm_provider: String,
     #[serde(default = "default_llm_base_url", alias = "ollama_url")]
     pub llm_base_url: String,
+    #[serde(default = "default_terminal_command")]
+    pub terminal_command: String,
     #[serde(default = "default_llm_model", alias = "ollama_model")]
     pub llm_model: String,
     #[serde(default)]
@@ -325,6 +331,7 @@ impl Default for VoiceConfig {
             searxng_url: default_searxng_url(),
             llm_provider: default_llm_provider(),
             llm_base_url: default_llm_base_url(),
+            terminal_command: default_terminal_command(),
             llm_model: default_llm_model(),
             vault_path: String::new(),
             vision_model: String::new(),

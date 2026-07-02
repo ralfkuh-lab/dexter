@@ -589,7 +589,7 @@ async fn run_llm_pipeline(
         let mode = app.state::<AppState>().app_mode.lock().unwrap().clone();
         if mode != crate::state::AppMode::Chat {
             if is_agent_enter_command(&transcript) {
-                return run_agent_enter(&app, &mode).await;
+                return run_agent_enter(&app, &mode, &config).await;
             }
             return run_agent_session(&app, &mode, &transcript, &config).await;
         }
@@ -976,7 +976,7 @@ async fn run_agent_session(
     app: &tauri::AppHandle,
     mode: &crate::state::AppMode,
     prompt: &str,
-    _config: &VoiceConfig,
+    config: &VoiceConfig,
 ) -> Result<(), String> {
     use crate::agent_session;
     use crate::state::record_automation_event;
@@ -985,7 +985,7 @@ async fn run_agent_session(
 
     let session = agent_session::ensure_session(mode, &working_dir).await?;
 
-    agent_session::open_terminal(&session.name).await?;
+    agent_session::open_terminal(&session.name, &config.terminal_command).await?;
     if session.created {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
@@ -1015,6 +1015,7 @@ async fn run_agent_session(
 async fn run_agent_enter(
     app: &tauri::AppHandle,
     mode: &crate::state::AppMode,
+    config: &VoiceConfig,
 ) -> Result<(), String> {
     use crate::agent_session;
     use crate::state::record_automation_event;
@@ -1022,7 +1023,7 @@ async fn run_agent_enter(
     let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let session = agent_session::ensure_session(mode, &working_dir).await?;
 
-    agent_session::open_terminal(&session.name).await?;
+    agent_session::open_terminal(&session.name, &config.terminal_command).await?;
     agent_session::send_enter(&session.pane_id).await?;
 
     record_automation_event(app, "agent.enter", mode.to_string());
@@ -1054,12 +1055,17 @@ fn handle_command(app: &tauri::AppHandle, cmd: crate::command_parser::Command) {
             let _ = app.emit("app_mode_changed", &label);
 
             if mode != crate::state::AppMode::Chat {
+                let terminal_command = state.config.lock().unwrap().terminal_command.clone();
                 tauri::async_runtime::spawn(async move {
                     let working_dir =
                         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                     match crate::agent_session::ensure_session(&mode, &working_dir).await {
                         Ok(session) => {
-                            let _ = crate::agent_session::open_terminal(&session.name).await;
+                            let _ = crate::agent_session::open_terminal(
+                                &session.name,
+                                &terminal_command,
+                            )
+                            .await;
                         }
                         Err(e) => {
                             eprintln!("Agent-Session konnte nicht gestartet werden: {}", e);

@@ -56,6 +56,16 @@ export function ConfigTab({
         </Field>
       </FieldGroup>
 
+      <FieldGroup title="Agent Sessions">
+        <Field label="Terminal">
+          <Input
+            value={config.terminal_command}
+            onChange={(v) => setConfig({ ...config, terminal_command: v })}
+            placeholder="gnome-terminal"
+          />
+        </Field>
+      </FieldGroup>
+
       <FieldGroup title="Push-to-Talk">
         <Field label="Hotkey (hold to talk)">
           <Input

@@ -8,7 +8,7 @@
 //! gehen und die Zuordnung auch einen Dexter-Neustart übersteht.
 
 use crate::state::AppMode;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 /// Gemeinsame tmux-Session, in der alle Agent-Panes leben.
@@ -226,17 +226,50 @@ async fn session_is_attached(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub async fn open_terminal(session_name: &str) -> Result<(), String> {
+fn effective_terminal(terminal: &str) -> &str {
+    let terminal = terminal.trim();
+    if terminal.is_empty() {
+        "gnome-terminal"
+    } else {
+        terminal
+    }
+}
+
+fn terminal_args(terminal: &str, session_name: &str) -> Vec<String> {
+    let binary = Path::new(effective_terminal(terminal))
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+
+    let args = match binary {
+        "gnome-terminal" | "xfce4-terminal" => {
+            vec!["--", "tmux", "attach-session", "-t", session_name]
+        }
+        "wezterm" => vec!["start", "--", "tmux", "attach-session", "-t", session_name],
+        "kitty" => vec!["tmux", "attach-session", "-t", session_name],
+        _ => vec!["-e", "tmux", "attach-session", "-t", session_name],
+    };
+
+    args.into_iter().map(String::from).collect()
+}
+
+pub async fn open_terminal(session_name: &str, terminal: &str) -> Result<(), String> {
     if session_is_attached(session_name).await {
         return Ok(());
     }
-    Command::new("gnome-terminal")
-        .args(["--", "tmux", "attach-session", "-t", session_name])
+    let terminal = effective_terminal(terminal);
+    Command::new(terminal)
+        .args(terminal_args(terminal, session_name))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| format!("gnome-terminal konnte nicht gestartet werden: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Terminal '{}' konnte nicht gestartet werden: {}",
+                terminal, e
+            )
+        })?;
     Ok(())
 }
 
@@ -300,5 +333,33 @@ mod tests {
         assert_eq!(agent_command(&AppMode::CodexSession), Some("codex"));
         assert_eq!(agent_command(&AppMode::AgySession), Some("agy"));
         assert_eq!(agent_command(&AppMode::OpencodeSession), Some("opencode"));
+    }
+
+    #[test]
+    fn terminal_args_use_double_dash_for_gnome_and_xfce() {
+        let expected = vec!["--", "tmux", "attach-session", "-t", "agents"];
+        assert_eq!(terminal_args("gnome-terminal", "agents"), expected);
+        assert_eq!(terminal_args("xfce4-terminal", "agents"), expected);
+        assert_eq!(terminal_args("", "agents"), expected);
+    }
+
+    #[test]
+    fn terminal_args_handle_wezterm_and_kitty() {
+        assert_eq!(
+            terminal_args("wezterm", "agents"),
+            vec!["start", "--", "tmux", "attach-session", "-t", "agents"]
+        );
+        assert_eq!(
+            terminal_args("/usr/bin/kitty", "agents"),
+            vec!["tmux", "attach-session", "-t", "agents"]
+        );
+    }
+
+    #[test]
+    fn terminal_args_use_exec_flag_for_other_terminals() {
+        let expected = vec!["-e", "tmux", "attach-session", "-t", "agents"];
+        assert_eq!(terminal_args("alacritty", "agents"), expected);
+        assert_eq!(terminal_args("/usr/bin/konsole", "agents"), expected);
+        assert_eq!(terminal_args("xterm", "agents"), expected);
     }
 }
