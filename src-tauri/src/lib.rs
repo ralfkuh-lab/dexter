@@ -162,6 +162,7 @@ pub fn run() {
                 .clone();
             backend::register_dictation_shortcut(app.handle(), &dictation_hotkey)?;
             automation::start(app.handle().clone());
+            agent_session::spawn_lifecycle_watcher(app.handle().clone());
 
             // Probe the LLM backend for max context window (non-blocking).
             backend::refresh_ctx_max(app.handle());

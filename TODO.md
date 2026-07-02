@@ -14,9 +14,6 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 
 ## Agent-Sessions (tmux-basiert)
 
-- [ ] **Agent-Lifecycle erkennen.** Prüfen ob der Agent in der tmux-Session
-  noch läuft oder beendet wurde. Bei Exit zurück in Chat-Modus wechseln.
-
 - [ ] **Wiederverbindung nach Neustart.** Bestehende dexter-* tmux-Sessions
   beim App-Start erkennen und Modus wiederherstellen.
 

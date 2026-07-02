@@ -7,8 +7,9 @@
 //! zugeordnet, sodass Spracheingaben per `tmux send-keys` an den richtigen Pane
 //! gehen und die Zuordnung auch einen Dexter-Neustart übersteht.
 
-use crate::state::AppMode;
+use crate::state::{AppMode, AppState};
 use std::path::{Path, PathBuf};
+use tauri::{Emitter, Manager};
 use tokio::process::Command;
 
 /// Gemeinsame tmux-Session, in der alle Agent-Panes leben.
@@ -80,6 +81,69 @@ async fn find_pane(tag: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Überwacht den Pane des aktiven Agent-Modus und kehrt nach zwei
+/// aufeinanderfolgenden fehlgeschlagenen Prüfungen in den Chat-Modus zurück.
+pub fn spawn_lifecycle_watcher(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut watched_mode: Option<AppMode> = None;
+        let mut missing_ticks = 0_u8;
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+            let mode = {
+                let state = app.state::<AppState>();
+                let mode = state.app_mode.lock().unwrap().clone();
+                mode
+            };
+
+            if mode == AppMode::Chat {
+                watched_mode = None;
+                missing_ticks = 0;
+                continue;
+            }
+
+            if watched_mode.as_ref() != Some(&mode) {
+                watched_mode = Some(mode.clone());
+                missing_ticks = 0;
+            }
+
+            if find_pane(&agent_tag(&mode)).await.is_some() {
+                missing_ticks = 0;
+                continue;
+            }
+
+            missing_ticks += 1;
+            if missing_ticks < 2 {
+                continue;
+            }
+
+            let switched = {
+                let state = app.state::<AppState>();
+                let mut current_mode = state.app_mode.lock().unwrap();
+                if *current_mode == mode {
+                    *current_mode = AppMode::Chat;
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if switched {
+                let label = AppMode::Chat.to_string();
+                let _ = app.emit("app_mode_changed", &label);
+                let _ = app.emit(
+                    "assistant_text",
+                    &format!("Agent-Session {} beendet — zurück im Chat-Modus", mode),
+                );
+            }
+
+            watched_mode = None;
+            missing_ticks = 0;
+        }
+    });
 }
 
 /// Markiert einen Pane mit dem Agent-Tag, damit er später wiederfindbar ist.
