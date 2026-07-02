@@ -112,7 +112,13 @@ pub fn search_notes(vault_path: &str, query: &str) -> String {
     }
 
     if out.is_empty() {
-        return format!("Keine Treffer für \"{}\" im Vault.", query);
+        return format!(
+            "Keine Treffer für \"{}\" im Vault. Versuche es erneut mit einem \
+             Synonym, Oberbegriff oder einer anderen Schreibweise (z.B. \
+             Wortstamm statt gebeugter Form, deutscher statt englischer \
+             Begriff oder umgekehrt).",
+            query
+        );
     }
     let mut result = format!("Treffer für \"{}\":\n\n{}", query, out.join("\n"));
     if truncated {

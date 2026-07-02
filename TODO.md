@@ -41,8 +41,6 @@ Settings (Knowledge-Tab). Denkbare Erweiterungen:
 
 - [ ] **`[[wikilink]]`-Auflösung.** search_notes/read_note könnten verlinkte
   Notizen mit auflösen, damit das LLM Struktur folgen kann.
-- [ ] **Synonym-/Mehrfachsuche.** Bei 0 Treffern das LLM zu alternativen
-  Suchbegriffen anregen (Prompt-Hinweis), um die grep-Grenze abzufedern.
 
 ## Features / Ideen (nicht dringend)
 
