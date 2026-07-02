@@ -31,15 +31,38 @@ struct VadEvent {
     speech: bool,
 }
 
+fn select_input_device(host: &cpal::Host, wanted: &str) -> Option<cpal::Device> {
+    if wanted.is_empty() {
+        return host.default_input_device();
+    }
+
+    if let Ok(devices) = host.input_devices() {
+        for device in devices {
+            if device.name().ok().as_deref() == Some(wanted) {
+                return Some(device);
+            }
+        }
+    }
+
+    eprintln!(
+        "Configured input device {:?} not found; using system default",
+        wanted
+    );
+    host.default_input_device()
+}
+
 /// Record audio on the current thread until `is_recording` is set to false.
 /// Writes samples directly into AppState's shared buffer.
 pub fn record_audio(
     app: &tauri::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or("No input device available")?;
+    let wanted = {
+        let state = app.state::<AppState>();
+        let config = state.config.lock().unwrap();
+        config.input_device.clone()
+    };
+    let device = select_input_device(&host, &wanted).ok_or("No input device available")?;
 
     let config = device.default_input_config()?;
     let sample_rate = config.sample_rate().0;
@@ -133,9 +156,12 @@ pub fn record_continuous(
     cancel: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or("No input device available")?;
+    let wanted = {
+        let state = app.state::<AppState>();
+        let config = state.config.lock().unwrap();
+        config.input_device.clone()
+    };
+    let device = select_input_device(&host, &wanted).ok_or("No input device available")?;
 
     let config = device.default_input_config()?;
     let sample_rate = config.sample_rate().0;

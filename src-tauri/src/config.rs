@@ -286,6 +286,8 @@ impl Default for WindowConfig {
 pub struct VoiceConfig {
     #[serde(default = "default_whisper_server_url")]
     pub whisper_server_url: String,
+    #[serde(default)]
+    pub input_device: String,
     #[serde(default = "default_searxng_url")]
     pub searxng_url: String,
     #[serde(default = "default_llm_provider")]
@@ -328,6 +330,7 @@ impl Default for VoiceConfig {
     fn default() -> Self {
         Self {
             whisper_server_url: default_whisper_server_url(),
+            input_device: String::new(),
             searxng_url: default_searxng_url(),
             llm_provider: default_llm_provider(),
             llm_base_url: default_llm_base_url(),

@@ -36,6 +36,7 @@ export interface WindowConfig {
 
 export interface VoiceConfig {
   whisper_server_url: string;
+  input_device: string;
   searxng_url: string;
   llm_provider: string;
   llm_base_url: string;

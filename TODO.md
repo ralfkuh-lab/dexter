@@ -42,5 +42,3 @@ Settings (Knowledge-Tab). Denkbare Erweiterungen:
 ## Features / Ideen (nicht dringend)
 
 - [ ] **Diagnose-Anzeige in Settings:** Config-Pfad und Endpunkt-Health live.
-
-- [ ] **Mikrofon-Device wählbar machen.** Dropdown in Settings.

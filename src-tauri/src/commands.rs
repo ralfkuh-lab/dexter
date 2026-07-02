@@ -13,6 +13,7 @@ use crate::state::{
 };
 use crate::window::reveal_main_window;
 use crate::{voice, AppState, ChatMessage, VoiceConfig};
+use cpal::traits::{DeviceTrait, HostTrait};
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tokio_util::sync::CancellationToken;
@@ -87,6 +88,18 @@ pub fn get_app_mode(state: tauri::State<AppState>) -> String {
 #[tauri::command]
 pub fn get_config(state: tauri::State<AppState>) -> VoiceConfig {
     state.config.lock().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn list_input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    let mut names: Vec<String> = host
+        .input_devices()
+        .map(|devices| devices.filter_map(|device| device.name().ok()).collect())
+        .unwrap_or_default();
+    names.sort();
+    names.dedup();
+    names
 }
 
 #[tauri::command]
