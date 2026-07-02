@@ -29,7 +29,6 @@ export function ConfigTab({
             value={config.llm_model}
             onChange={(v) => setConfig({ ...config, llm_model: v })}
             baseUrl={config.llm_base_url}
-            provider={config.llm_provider}
           />
         </Field>
       </FieldGroup>

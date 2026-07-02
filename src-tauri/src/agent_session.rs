@@ -279,22 +279,6 @@ pub async fn send_enter(pane: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Schließt den Agent-Pane für `mode` (falls vorhanden) und kachelt neu.
-pub async fn kill_session(mode: &AppMode) -> Result<(), String> {
-    let tag = agent_tag(mode);
-    if let Some(pane_id) = find_pane(&tag).await {
-        let _ = Command::new("tmux")
-            .args(["kill-pane", "-t", &pane_id])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .await;
-        retile().await;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,9 +14,6 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 
 ## Agent-Sessions (tmux-basiert)
 
-- [ ] **Session-Cleanup beim App-Exit.** Offene tmux-Sessions beim Beenden
-  von Dexter ordentlich aufräumen (kill_session für alle aktiven Modi).
-
 - [ ] **Agent-Lifecycle erkennen.** Prüfen ob der Agent in der tmux-Session
   noch läuft oder beendet wurde. Bei Exit zurück in Chat-Modus wechseln.
 
@@ -25,9 +22,6 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 
 - [ ] **Terminal-Emulator konfigurierbar.** Aktuell hardcoded gnome-terminal,
   sollte über Config wählbar sein (kitty, alacritty, wezterm etc.).
-
-- [ ] **macOS-Terminal-Integration.** Terminal.app oder iTerm2 statt
-  gnome-terminal. tmux läuft auf macOS nativ.
 
 ## Visible Workspace (Phase 4 Ausbau)
 
@@ -39,16 +33,6 @@ Roadmap und Gesamtvision → `docs/VISION.md`.
 - [ ] **Active-Monitor-Detection auf Linux.** macOS hat das Python/Quartz-
   Snippet. Linux-Screenshot nimmt aktuell den ganzen virtuellen Desktop.
   Multi-Monitor-Auswahl wäre per `xrandr`-Geometrie machbar.
-
-## Aufräumen / kleine Refactorings
-
-- [ ] **macOS-Pfade weiter pflegen, aber ungetestet.** Multi-Platform bleibt
-  Ziel, aktive Entwicklung ist Linux. macOS-`cfg`-Branches bewusst behalten.
-
-- [ ] **Letzter Ollama-Rest: Vision-Pfad.** Chat-Client und RAG-Embeddings sind
-  raus. Übrig ist nur `tools.rs::describe_screenshot` mit eigenem
-  `provider == "ollama"`-Vision-Pfad (`/api/chat`) — nur aktiv bei Provider
-  „ollama", kann bleiben oder später raus.
 
 ## Knowledge-Vault: mögliche Ausbauten (nicht dringend)
 

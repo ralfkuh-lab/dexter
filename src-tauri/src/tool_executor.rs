@@ -11,7 +11,7 @@ use tauri::{Emitter, Manager};
 pub async fn execute_tool(
     app: &tauri::AppHandle,
     config: &VoiceConfig,
-    tool_call: &voice::OllamaToolCall,
+    tool_call: &voice::ToolCall,
 ) -> String {
     match tool_call.function.name.as_str() {
         "search_notes" => {
@@ -69,7 +69,6 @@ pub async fn execute_tool(
                     };
                     match tools::describe_screenshot(
                         &config.llm_base_url,
-                        &config.llm_provider,
                         vision_model,
                         &image_b64,
                         &question,

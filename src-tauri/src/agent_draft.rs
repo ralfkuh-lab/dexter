@@ -191,7 +191,7 @@ async fn interpret_segment(
 }
 
 fn action_from_tool_call(
-    call: &voice::OllamaToolCall,
+    call: &voice::ToolCall,
     app: &tauri::AppHandle,
     original_segment: &str,
 ) -> DraftAction {

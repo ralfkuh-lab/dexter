@@ -13,7 +13,7 @@ mod tts;
 
 pub use audio::{record_audio, record_continuous, AudioSegment};
 pub use llm::{
-    chat_streaming, warmup_llm, OllamaToolCall, OllamaToolCallOut, StreamResult, ToolCallSource,
+    chat_streaming, warmup_llm, StreamResult, ToolCall, ToolCallOut, ToolCallSource,
 };
 pub use stt::transcribe_audio_http;
 pub use tool_defs::build_tools;

@@ -1,8 +1,8 @@
 //! OpenAI-kompatibler `/v1/chat/completions` Streaming-Client (llama.cpp etc.).
 
 use super::{
-    find_sentence_end, parse_xml_tool_calls, OllamaToolCall, OllamaToolCallOut,
-    OllamaToolFunction, StreamResult, ToolCallSource,
+    find_sentence_end, parse_xml_tool_calls, StreamResult, ToolCall, ToolCallOut,
+    ToolCallSource, ToolFunction,
 };
 use crate::voice::{emit_llm_stats, trim_base_url, LlmStats};
 use crate::{ChatMessage, VoiceConfig};
@@ -191,7 +191,7 @@ pub(super) async fn chat_streaming(
     let has_tools = !tools.is_empty();
     let mut xml_collecting = false;
     let mut xml_buffer = String::new();
-    let mut xml_tool_calls: Vec<OllamaToolCall> = Vec::new();
+    let mut xml_tool_calls: Vec<ToolCall> = Vec::new();
 
     let xml_open_re = regex::Regex::new(r"<(?:\w+:)?tool_call>").unwrap();
     let xml_close_re = regex::Regex::new(r"</(?:\w+:)?tool_call>").unwrap();
@@ -340,7 +340,7 @@ pub(super) async fn chat_streaming(
         }
     }
 
-    let tool_calls = accumulators_to_ollama(tool_call_accumulators);
+    let tool_calls = accumulators_to_tool_calls(tool_call_accumulators);
     if !tool_calls.is_empty() {
         return Ok(StreamResult::ToolCalls {
             calls: tool_calls,
@@ -409,7 +409,7 @@ pub(super) async fn warmup(
         .await
 }
 
-fn to_openai_tool_calls(tool_calls: &[OllamaToolCallOut]) -> Vec<OpenAiToolCallOut> {
+fn to_openai_tool_calls(tool_calls: &[ToolCallOut]) -> Vec<OpenAiToolCallOut> {
     tool_calls
         .iter()
         .enumerate()
@@ -468,7 +468,7 @@ fn collect_tool_call_deltas(
     }
 }
 
-fn accumulators_to_ollama(accumulators: Vec<OpenAiToolCallAccumulator>) -> Vec<OllamaToolCall> {
+fn accumulators_to_tool_calls(accumulators: Vec<OpenAiToolCallAccumulator>) -> Vec<ToolCall> {
     accumulators
         .into_iter()
         .enumerate()
@@ -478,9 +478,9 @@ fn accumulators_to_ollama(accumulators: Vec<OpenAiToolCallAccumulator>) -> Vec<O
                 return None;
             }
 
-            Some(OllamaToolCall {
+            Some(ToolCall {
                 id: Some(acc.id.unwrap_or_else(|| format!("call_{}", index))),
-                function: OllamaToolFunction {
+                function: ToolFunction {
                     name,
                     arguments: parse_tool_arguments(&acc.arguments),
                 },

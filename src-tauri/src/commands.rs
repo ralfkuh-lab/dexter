@@ -216,34 +216,12 @@ pub fn resolve_dialog(app: tauri::AppHandle, selected: String) -> Result<(), Str
 }
 
 #[tauri::command]
-pub async fn list_models(base_url: String, provider: String) -> Result<Vec<String>, String> {
+pub async fn list_models(base_url: String) -> Result<Vec<String>, String> {
     let base = base_url.trim_end_matches('/');
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(4))
         .build()
         .map_err(|e| e.to_string())?;
-
-    if provider == "ollama" {
-        // Ollama: /api/tags → { models: [{ name, ... }] }
-        let resp = client
-            .get(format!("{}/api/tags", base))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        let mut out: Vec<String> = v
-            .get("models")
-            .and_then(|m| m.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        out.sort();
-        out.dedup();
-        return Ok(out);
-    }
 
     // OpenAI-compatible (llama.cpp, vLLM, sglang, …): /v1/models → { data: [{ id }] }
     let resp = client

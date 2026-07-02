@@ -814,7 +814,7 @@ async fn run_llm_pipeline(
                                 tool_call_id: None,
                             });
                         } else {
-                            let tool_calls_out: Vec<voice::OllamaToolCallOut> =
+                            let tool_calls_out: Vec<voice::ToolCallOut> =
                                 tool_calls.iter().map(|tc| tc.to_out()).collect();
                             all_msgs.push(ChatMessage {
                                 role: "assistant".to_string(),

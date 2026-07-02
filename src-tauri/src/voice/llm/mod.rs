@@ -8,39 +8,39 @@ use tokio::sync::mpsc;
 
 mod openai;
 
-/// Serializable tool call (for sending back to Ollama in assistant messages).
+/// Serializable tool call (for sending back in assistant messages).
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct OllamaToolCallOut {
+pub struct ToolCallOut {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub id: Option<String>,
-    pub function: OllamaToolFunctionOut,
+    pub function: ToolFunctionOut,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct OllamaToolFunctionOut {
+pub struct ToolFunctionOut {
     pub name: String,
     pub arguments: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct OllamaToolCall {
+pub struct ToolCall {
     #[serde(default)]
     pub id: Option<String>,
-    pub function: OllamaToolFunction,
+    pub function: ToolFunction,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct OllamaToolFunction {
+pub struct ToolFunction {
     pub name: String,
     pub arguments: HashMap<String, serde_json::Value>,
 }
 
-impl OllamaToolCall {
+impl ToolCall {
     /// Convert deserialized tool call to serializable form for echoing back.
-    pub fn to_out(&self) -> OllamaToolCallOut {
-        OllamaToolCallOut {
+    pub fn to_out(&self) -> ToolCallOut {
+        ToolCallOut {
             id: self.id.clone(),
-            function: OllamaToolFunctionOut {
+            function: ToolFunctionOut {
                 name: self.function.name.clone(),
                 arguments: self.function.arguments.clone(),
             },
@@ -51,8 +51,7 @@ impl OllamaToolCall {
 /// Origin of the tool calls in `StreamResult::ToolCalls`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolCallSource {
-    /// Provider's native structured tool-call format (Ollama tool_calls,
-    /// OpenAI tool_calls). Echoed back to the LLM as-is.
+    /// Provider's native structured tool-call format. Echoed back to the LLM as-is.
     Native,
     /// Model emitted text-mode XML tool calls (`<tool_call>…</tool_call>`)
     /// that we parsed out and rewrote as native form.
@@ -68,7 +67,7 @@ pub enum StreamResult {
     /// narration text (e.g. "Let me search for that") that was already sent
     /// to TTS before the tool call started.
     ToolCalls {
-        calls: Vec<OllamaToolCall>,
+        calls: Vec<ToolCall>,
         spoken_preamble: String,
         source: ToolCallSource,
     },
@@ -174,7 +173,7 @@ pub(super) fn find_sentence_end(text: &str) -> Option<usize> {
 }
 
 /// Parse XML-style tool calls that some models emit as text.
-pub(super) fn parse_xml_tool_calls(content: &str) -> Option<Vec<OllamaToolCall>> {
+pub(super) fn parse_xml_tool_calls(content: &str) -> Option<Vec<ToolCall>> {
     let re_block = regex::Regex::new(r"(?s)<(?:\w+:)?tool_call>(.*?)</(?:\w+:)?tool_call>").ok()?;
     let re_invoke = regex::Regex::new(r#"(?s)<invoke\s+name="([^"]+)">(.*?)</invoke>"#).ok()?;
     let re_param =
@@ -197,9 +196,9 @@ pub(super) fn parse_xml_tool_calls(content: &str) -> Option<Vec<OllamaToolCall>>
                 arguments.insert(key, json_val);
             }
 
-            calls.push(OllamaToolCall {
+            calls.push(ToolCall {
                 id: None,
-                function: OllamaToolFunction {
+                function: ToolFunction {
                     name: func_name,
                     arguments,
                 },

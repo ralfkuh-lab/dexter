@@ -355,17 +355,13 @@ else:
     s.trim().parse::<u32>().ok()
 }
 
-/// Describe a screenshot image using Ollama's vision capabilities.
-/// Sends the base64 PNG to the model and asks it to describe what's on screen.
-/// Send the JPEG-base64 screenshot to the LLM's vision endpoint.
-/// Branches on provider: Ollama-native `/api/chat` for ollama, OpenAI-compatible
-/// `/v1/chat/completions` with multipart `content` array for everything else
-/// (llama.cpp, vLLM, …). For OpenAI we disable thinking mode — otherwise
-/// Gemma-3n-style models burn the entire token budget in `reasoning_content`
-/// and return an empty answer.
+/// Describe a screenshot image using vision capabilities.
+/// Sends the JPEG-base64 screenshot to the OpenAI-compatible `/v1/chat/completions`
+/// endpoint with a multipart `content` array. For OpenAI we disable thinking mode
+/// — otherwise Gemma-3n-style models burn the entire token budget in
+/// `reasoning_content` and return an empty answer.
 pub async fn describe_screenshot(
     base_url: &str,
-    provider: &str,
     model: &str,
     image_b64: &str,
     question: &str,
@@ -376,41 +372,6 @@ pub async fn describe_screenshot(
         .map_err(|e| e.to_string())?;
 
     let base = base_url.trim_end_matches('/');
-
-    if provider == "ollama" {
-        let body = serde_json::json!({
-            "model": model,
-            "messages": [{
-                "role": "user",
-                "content": question,
-                "images": [image_b64],
-            }],
-            "stream": false,
-        });
-
-        let resp = client
-            .post(format!("{}/api/chat", base))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Vision request failed: {}", e))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Vision error {}: {}", status, text));
-        }
-
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse vision response: {}", e))?;
-
-        return Ok(json["message"]["content"]
-            .as_str()
-            .unwrap_or("Could not describe the screenshot.")
-            .to_string());
-    }
 
     // OpenAI-compatible providers (llama.cpp, vLLM, sglang, …).
     let url = if base.ends_with("/v1") {

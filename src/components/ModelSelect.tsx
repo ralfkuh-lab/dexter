@@ -6,12 +6,10 @@ export function ModelSelect({
   value,
   onChange,
   baseUrl,
-  provider,
 }: {
   value: string;
   onChange: (v: string) => void;
   baseUrl: string;
-  provider: string;
 }) {
   const [models, setModels] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +17,7 @@ export function ModelSelect({
   const refresh = () => {
     setError(null);
     setModels(null);
-    invoke<string[]>("list_models", { baseUrl, provider })
+    invoke<string[]>("list_models", { baseUrl })
       .then((m) => setModels(m))
       .catch((e) => {
         setModels([]);
@@ -27,7 +25,7 @@ export function ModelSelect({
       });
   };
 
-  useEffect(() => { refresh(); }, [baseUrl, provider]);
+  useEffect(() => { refresh(); }, [baseUrl]);
 
   if (models === null) {
     return <div className="text-[12px] text-white/40 px-1">Loading models...</div>;
